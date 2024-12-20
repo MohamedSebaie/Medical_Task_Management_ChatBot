@@ -9,7 +9,7 @@ import pandas as pd
 
 # Configure page
 st.set_page_config(
-    page_title="Medical NLP Bot",
+    page_title="Medical Task Management ChatBot",
     page_icon="🏥",
     layout="wide"
 )
@@ -445,48 +445,60 @@ def show_data_views():
             with col1:
                 age_filter = st.slider("Filter by Age", 0, 100, (0, 100))
             with col2:
-                all_conditions = sorted(st.session_state.patients['condition'].unique().tolist())
+                # Safely handle conditions
+                conditions = st.session_state.patients['condition'].dropna().unique()
+                all_conditions = sorted([str(c) for c in conditions if c is not None])
                 condition_filter = st.multiselect(
                     "Filter by Condition",
                     options=all_conditions,
                     default=[]
-                )
+                ) if all_conditions else []
             with col3:
-                # Add gender filter
-                all_genders = sorted(st.session_state.patients['gender'].unique().tolist())
+                # Safely handle genders
+                genders = st.session_state.patients['gender'].dropna().unique()
+                all_genders = sorted([str(g) for g in genders if g is not None])
                 gender_filter = st.multiselect(
                     "Filter by Gender",
                     options=all_genders,
                     default=[]
-                )
+                ) if all_genders else []
             st.markdown('</div>', unsafe_allow_html=True)
             
             # Apply filters
             filtered_df = st.session_state.patients.copy()
             
-            # Handle age filtering
+            # Handle age filtering safely
             try:
-                filtered_df['age_num'] = filtered_df['age'].str.extract('(\d+)').astype(float)
-                filtered_df = filtered_df[
+                # Extract numeric age values safely
+                filtered_df['age_num'] = filtered_df['age'].apply(
+                    lambda x: pd.to_numeric(str(x).split()[0]) if pd.notnull(x) else None
+                )
+                age_mask = (
+                    filtered_df['age_num'].notna() & 
                     (filtered_df['age_num'] >= age_filter[0]) & 
                     (filtered_df['age_num'] <= age_filter[1])
-                ]
+                )
+                filtered_df = filtered_df[age_mask]
                 filtered_df = filtered_df.drop('age_num', axis=1)
             except Exception as e:
-                st.warning(f"Error filtering age data: {str(e)}")
+                st.warning("Some age values couldn't be processed. Showing all ages.")
             
-            # Handle condition filtering
+            # Handle condition filtering safely
             if condition_filter:
-                filtered_df = filtered_df[filtered_df['condition'].isin(condition_filter)]
+                filtered_df = filtered_df[
+                    filtered_df['condition'].fillna('').astype(str).isin(condition_filter)
+                ]
             
-            # Handle gender filtering
+            # Handle gender filtering safely
             if gender_filter:
-                filtered_df = filtered_df[filtered_df['gender'].isin(gender_filter)]
+                filtered_df = filtered_df[
+                    filtered_df['gender'].fillna('').astype(str).isin(gender_filter)
+                ]
             
             # Display filtered data
             st.markdown('<div class="data-container">', unsafe_allow_html=True)
             st.dataframe(
-                filtered_df,
+                filtered_df.fillna('Not specified'),
                 hide_index=True,
                 use_container_width=True
             )
@@ -499,26 +511,29 @@ def show_data_views():
                 
                 with col1:
                     try:
-                        age_data = filtered_df['age'].str.extract('(\d+)').astype(float)
-                        fig = px.histogram(
-                            age_data,
-                            nbins=20,
-                            title="Age Distribution",
-                            labels={'value': 'Age', 'count': 'Number of Patients'},
-                            color_discrete_sequence=['#3498DB']
+                        age_data = filtered_df['age'].dropna().apply(
+                            lambda x: pd.to_numeric(str(x).split()[0])
                         )
-                        fig.update_layout(
-                            plot_bgcolor='white',
-                            paper_bgcolor='white',
-                            margin=dict(t=40, b=20, l=20, r=20)
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
+                        if not age_data.empty:
+                            fig = px.histogram(
+                                age_data,
+                                nbins=20,
+                                title="Age Distribution",
+                                labels={'value': 'Age', 'count': 'Number of Patients'},
+                                color_discrete_sequence=['#3498DB']
+                            )
+                            fig.update_layout(
+                                plot_bgcolor='white',
+                                paper_bgcolor='white',
+                                margin=dict(t=40, b=20, l=20, r=20)
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
                     except Exception as e:
-                        st.warning(f"Error creating age distribution: {str(e)}")
+                        st.info("Age distribution visualization unavailable")
                 
                 with col2:
                     try:
-                        condition_counts = filtered_df['condition'].value_counts()
+                        condition_counts = filtered_df['condition'].dropna().value_counts()
                         if not condition_counts.empty:
                             fig = px.pie(
                                 values=condition_counts.values,
@@ -531,11 +546,11 @@ def show_data_views():
                             )
                             st.plotly_chart(fig, use_container_width=True)
                     except Exception as e:
-                        st.warning(f"Error creating condition distribution: {str(e)}")
+                        st.info("Condition distribution visualization unavailable")
                 
                 with col3:
                     try:
-                        gender_counts = filtered_df['gender'].value_counts()
+                        gender_counts = filtered_df['gender'].dropna().value_counts()
                         if not gender_counts.empty:
                             fig = px.pie(
                                 values=gender_counts.values,
@@ -548,7 +563,7 @@ def show_data_views():
                             )
                             st.plotly_chart(fig, use_container_width=True)
                     except Exception as e:
-                        st.warning(f"Error creating gender distribution: {str(e)}")
+                        st.info("Gender distribution visualization unavailable")
             else:
                 st.info("No data available for the selected filters")
         else:
@@ -760,7 +775,7 @@ def format_response_json(response_data):
 
 def show_chat_interface():
     """Display chat interface page with enhanced chat history"""
-    st.title("Medical Assistant Chat 🏥")
+    st.title("Medical Task Management ChatBot 🏥")
     
     # Display chat history
     for message in st.session_state.chat_history:
