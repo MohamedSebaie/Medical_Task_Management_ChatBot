@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from transformers import pipeline # type: ignore
 from gliner import GLiNER # type: ignore
 import spacy # type: ignore
@@ -39,9 +39,16 @@ class MedicalNLPPipeline:
             "patient", "doctor", "medication", "dosage",
             "frequency", "condition", "symptom", "procedure",
             "test", "date", "time", "duration", "facility",
-            "department", "vital_sign", "lab_result"
+            "department", "vital_sign", "lab_result", "gender",  # Added gender
+            "demographics", "patient_gender"  # Additional gender-related entities
         ]
         
+        self.gender_patterns = {
+            "male": ["male", "m", "man", "boy", "gentleman"],
+            "female": ["female", "f", "woman", "girl", "lady"],
+            "other": ["other", "non-binary", "transgender", "prefer not to say"]
+        }
+
         self.intent_labels = [
             "add_patient", "assign_medication", 
             "schedule_followup", "update_record",
@@ -54,6 +61,21 @@ class MedicalNLPPipeline:
             "every", "times a day", "hours"
         ]
 
+    def _extract_gender_with_pattern(self, text: str) -> Dict[str, Any]:
+        """Extract gender using pattern matching"""
+        text_lower = text.lower()
+        
+        for gender, patterns in self.gender_patterns.items():
+            for pattern in patterns:
+                if f" {pattern} " in f" {text_lower} ":
+                    return {
+                        "label": "gender",
+                        "text": gender,
+                        "score": 0.95,
+                        "method": "pattern"
+                    }
+        return None
+
     def _extract_entities_with_gliner(self, text: str) -> List[Dict[str, Any]]:
         """Extract entities using GLiNER"""
         try:
@@ -62,6 +84,26 @@ class MedicalNLPPipeline:
                 text,
                 self.medical_entities
             )
+            
+            # Extract gender using pattern matching
+            pattern_gender = self._extract_gender_with_pattern(text)
+            
+            # Check if GLiNER found any gender entities
+            gliner_gender = next(
+                (e for e in entities if e["label"] in ["gender", "patient_gender", "demographics"]), 
+                None
+            )
+            
+            # Combine gender information
+            if pattern_gender and gliner_gender:
+                # Both methods found gender - use the one with higher confidence
+                if pattern_gender["score"] > gliner_gender.get("score", 0):
+                    entities = [e for e in entities if e["label"] not in ["gender", "patient_gender", "demographics"]]
+                    entities.append(pattern_gender)
+            elif pattern_gender:
+                # Only pattern matching found gender
+                entities.append(pattern_gender)
+            
             return entities
         except Exception as e:
             logger.error(f"Error in GLiNER extraction: {str(e)}")
@@ -80,7 +122,10 @@ class MedicalNLPPipeline:
         category_mapping = {
             "patient": "patient_info",
             "doctor": "patient_info",
-            "age": "patient_info",  # Make sure age goes to patient_info
+            "age": "patient_info",
+            "gender": "patient_info",  # Added gender mapping
+            "patient_gender": "patient_info",  # Additional gender mapping
+            "demographics": "patient_info",  # Additional demographics mapping
             "medication": "medical_info",
             "dosage": "medical_info",
             "frequency": "medical_info",
@@ -95,14 +140,15 @@ class MedicalNLPPipeline:
             "department": "location_info",
         }
         
-        # Process GLiNER entities
+        # Process entities
         for entity in entities:
             category = category_mapping.get(entity["label"], "other")
             structured[category].append({
                 "text": entity["text"],
                 "type": entity["label"],
                 "span": entity.get("span", None),
-                "confidence": entity.get("score", 1.0)
+                "confidence": entity.get("score", 1.0),
+                "method": entity.get("method", "gliner")  # Track detection method
             })
         
         return structured
@@ -113,7 +159,7 @@ class MedicalNLPPipeline:
             "dates": [],
             "times": [],
             "patterns": [],
-            "age": []  # Added age category
+            "age": []
         }
 
         # Extract pure dates (excluding age)
@@ -161,7 +207,7 @@ class MedicalNLPPipeline:
             # Get intent using zero-shot classification
             intent_result = self._classify_intent(text)
             
-            # Get entities using GLiNER
+            # Get entities using GLiNER and pattern matching
             entities = self._extract_entities_with_gliner(text)
             
             # Process with spaCy for temporal features
@@ -180,7 +226,6 @@ class MedicalNLPPipeline:
                     "type": "age",
                     "confidence": 0.99
                 })
-                # Remove age from temporal_info
                 temporal_info.pop("age")
             
             return {
