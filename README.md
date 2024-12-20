@@ -277,12 +277,23 @@ Distributed under the MIT License. See `LICENSE` for more information.
 - Hugging Face for transformers library
 - SpaCy for NLP utilities
 
+
 ## 📫 Contact
 
-Your Name - [@yourtwitter](https://twitter.com/yourtwitter) - email@example.com
+Your Name - [LinkedIn Profile](https://www.linkedin.com/in/mohamedsebaie/) - mohamedsebaie@gmail.com
 
-Project Link: [https://github.com/yourusername/medical-nlp-pipeline](https://github.com/yourusername/medical-nlp-pipeline)
+Project Link: [https://https://github.com/MohamedSebaie/Medical_Task_Management_ChatBot](https://https://github.com/MohamedSebaie/Medical_Task_Management_ChatBot)
 
----
+<p align="center">
+  <a href="https://www.linkedin.com/in/mohamedsebaie/">
+    <img src="https://img.shields.io/badge/-LinkedIn-blue?style=flat-square&logo=Linkedin&logoColor=white" alt="LinkedIn"/>
+  </a>
+  <a href="mailto:mohamedsebaie@gmail.com">
+    <img src="https://img.shields.io/badge/-Email-red?style=flat-square&logo=Gmail&logoColor=white" alt="Email"/>
+  </a>
+  <a href="https://github.com/MohamedSebaie/Medical_Task_Management_ChatBot">
+    <img src="https://img.shields.io/badge/-GitHub-black?style=flat-square&logo=Github&logoColor=white" alt="GitHub"/>
+  </a>
+</p>
+
 ⭐️ If you found this project useful, please give it a star!
-```
