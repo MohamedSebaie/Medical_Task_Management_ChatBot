@@ -1,9 +1,11 @@
+from asyncio.log import logger
 from fastapi import FastAPI, HTTPException, Depends # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
 from .services.nlp_pipeline import MedicalNLPPipeline
 from .config import Settings, get_settings
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel # type: ignore
+import logging
 
 app = FastAPI(
     title="Medical NLP Bot",
@@ -36,31 +38,30 @@ class CommandResponse(BaseModel):
 async def health_check():
     return {"status": "healthy", "version": "1.0.0"}
 
-@app.post("/api/process", response_model=CommandResponse)
-async def process_command(
-    request: CommandRequest,
-    settings: Settings = Depends(get_settings)
-):
+@app.post("/api/process")
+async def process_command(request: CommandRequest) -> Dict[str, Any]:
     try:
         result = nlp_pipeline.process_text(request.text)
         
-        # Process conversation history if provided
-        if request.conversation_history:
-            context = nlp_pipeline.process_conversation(
-                request.conversation_history + [request.text]
-            )
-            result["conversation_context"] = context
-        
-        return CommandResponse(
-            success=True,
-            result=result
-        )
+        return {
+            "success": True,
+            "result": {
+                "intent": {
+                    "primary_intent": result["intent"]["primary_intent"],
+                    "confidence": result["intent"]["confidence"]
+                },
+                "entities": {
+                    k: [{"text": e["text"], "type": e["type"], "confidence": e["confidence"]} 
+                       for e in v] 
+                    for k, v in result["entities"].items() if v
+                },
+                "temporal_info": result["temporal_info"],
+                "processed_at": result["processed_at"]
+            }
+        }
     except Exception as e:
-        return CommandResponse(
-            success=False,
-            result={},
-            error=str(e)
-        )
+        logger.error(f"Error processing command: {str(e)}")
+        return {"success": False, "error": str(e)}
 
 @app.get("/api/entities")
 async def get_supported_entities():

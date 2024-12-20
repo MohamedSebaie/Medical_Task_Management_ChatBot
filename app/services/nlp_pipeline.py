@@ -1,16 +1,19 @@
-from gliner import GLiNER # type: ignore
-from transformers import pipeline # type: ignore
+# app/services/nlp_pipeline.py
+
+import logging
 from typing import Dict, List, Any, Optional
+from transformers import pipeline # type: ignore
+from gliner import GLiNER # type: ignore
 import spacy # type: ignore
 from datetime import datetime
-import logging
+import re
 
 logger = logging.getLogger(__name__)
 
 class MedicalNLPPipeline:
     def __init__(self):
         try:
-            # Initialize GLiNER model
+            # Initialize GLiNER
             self.gliner = GLiNER.from_pretrained("urchade/gliner_base")
             
             # Initialize zero-shot classifier
@@ -25,6 +28,8 @@ class MedicalNLPPipeline:
             
             # Initialize entity types and intents
             self._initialize_labels()
+            
+            logger.info("Successfully initialized NLP pipeline")
             
         except Exception as e:
             logger.error(f"Error initializing NLP pipeline: {str(e)}")
@@ -45,67 +50,27 @@ class MedicalNLPPipeline:
             "query_info", "check_vitals", 
             "order_test", "review_results"
         ]
-        
+
         self.temporal_patterns = [
             "daily", "twice", "weekly", "monthly",
             "every", "times a day", "hours"
         ]
 
-    def process_text(self, text: str) -> Dict[str, Any]:
-        """Process medical text through both GLiNER and zero-shot classification"""
+    def _extract_entities_with_gliner(self, text: str) -> List[Dict[str, Any]]:
+        """Extract entities using GLiNER"""
         try:
-            # Get intent using zero-shot classification
-            intent_result = self._classify_intent(text)
-            
-            # Get entities using GLiNER
+            # Get entities using GLiNER's predict_entities method
             entities = self.gliner.predict_entities(
                 text,
                 self.medical_entities
             )
-            
-            # Process with spaCy for additional linguistic features
-            doc = self.nlp(text)
-            
-            # Extract temporal information
-            temporal_info = self._extract_temporal_info(doc)
-            
-            # Structure the results
-            structured_entities = self._structure_entities(entities)
-            
-            return {
-                "intent": intent_result,
-                "entities": structured_entities,
-                "temporal_info": temporal_info,
-                "raw_text": text,
-                "processed_at": datetime.now().isoformat()
-            }
-            
+            return entities
         except Exception as e:
-            logger.error(f"Error processing text: {str(e)}")
-            raise
-
-    def _classify_intent(self, text: str) -> Dict[str, Any]:
-        """Classify intent using zero-shot classification"""
-        hypothesis_template = "This is a request to {}."
-        
-        result = self.zero_shot(
-            text,
-            self.intent_labels,
-            hypothesis_template=hypothesis_template,
-            multi_label=True
-        )
-        
-        return {
-            "primary_intent": result["labels"][0],
-            "confidence": result["scores"][0],
-            "all_intents": [
-                {"intent": label, "score": score}
-                for label, score in zip(result["labels"], result["scores"])
-            ]
-        }
+            logger.error(f"Error in GLiNER extraction: {str(e)}")
+            return []
 
     def _structure_entities(self, entities: List[Dict]) -> Dict[str, List[Dict]]:
-        """Structure extracted entities by category"""
+        """Structure entities by category"""
         structured = {
             "patient_info": [],
             "medical_info": [],
@@ -117,6 +82,7 @@ class MedicalNLPPipeline:
         category_mapping = {
             "patient": "patient_info",
             "doctor": "patient_info",
+            "age": "patient_info",  # Make sure age goes to patient_info
             "medication": "medical_info",
             "dosage": "medical_info",
             "frequency": "medical_info",
@@ -131,6 +97,7 @@ class MedicalNLPPipeline:
             "department": "location_info",
         }
         
+        # Process GLiNER entities
         for entity in entities:
             category = category_mapping.get(entity["label"], "other")
             structured[category].append({
@@ -142,60 +109,90 @@ class MedicalNLPPipeline:
         
         return structured
 
-    def _extract_temporal_info(self, doc) -> Dict[str, Any]:
+    def _extract_temporal_info(self, doc) -> Dict[str, List[str]]:
         """Extract temporal information from text"""
         temporal_info = {
             "dates": [],
             "times": [],
-            "durations": [],
-            "frequencies": [],
-            "patterns": []
+            "patterns": [],
+            "age": []  # Added age category
         }
-        
-        # Use spaCy for date recognition
-        for ent in doc.ents:
-            if ent.label_ in ["DATE", "TIME"]:
-                temporal_info["dates"].append(ent.text)
-        
+
+        # Extract pure dates (excluding age)
+        date_pattern = r'\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b'
+        matches = re.finditer(date_pattern, doc.text, re.IGNORECASE)
+        temporal_info["dates"].extend(match.group() for match in matches)
+
+        # Extract age separately
+        age_pattern = r'\b(\d+)\s*(?:years?\s*old|y/?o)\b'
+        age_matches = re.finditer(age_pattern, doc.text, re.IGNORECASE)
+        temporal_info["age"].extend(match.group() for match in age_matches)
+
+        # Extract times
+        time_pattern = r'\b(?:1[0-2]|0?[1-9])(?::[0-5][0-9])?\s*(?:AM|PM)\b|\b(?:[01]?[0-9]|2[0-3]):[0-5][0-9]\b'
+        matches = re.finditer(time_pattern, doc.text, re.IGNORECASE)
+        temporal_info["times"].extend(match.group() for match in matches)
+
         # Extract patterns
         text_lower = doc.text.lower()
         for pattern in self.temporal_patterns:
             if pattern in text_lower:
                 temporal_info["patterns"].append(pattern)
-        
+
         return temporal_info
 
-    def process_conversation(
-        self,
-        conversation: List[str]
-    ) -> List[Dict[str, Any]]:
-        """Process a conversation history"""
-        results = []
-        context = {}
+    def _classify_intent(self, text: str) -> Dict[str, Any]:
+        """Classify intent using zero-shot classification"""
+        hypothesis_template = "This is a request to {}."
         
-        for utterance in conversation:
-            current_result = self.process_text(utterance)
-            self._update_context(context, current_result)
-            current_result["context"] = context.copy()
-            results.append(current_result)
+        result = self.zero_shot(
+            text,
+            self.intent_labels,
+            hypothesis_template=hypothesis_template,
+            multi_label=True
+        )
         
-        return results
+        return {
+            "primary_intent": result["labels"][0],
+            "confidence": result["scores"][0]
+        }
 
-    def _update_context(
-        self,
-        context: Dict[str, Any],
-        current_result: Dict[str, Any]
-    ):
-        """Update conversation context with new information"""
-        entities = current_result["entities"]
-        
-        if entities["patient_info"]:
-            context["current_patient"] = entities["patient_info"][0]
-        
-        if entities["medical_info"]:
-            context["current_medical_info"] = entities["medical_info"]
-        
-        if current_result["temporal_info"]["dates"]:
-            context["last_mentioned_date"] = (
-                current_result["temporal_info"]["dates"][0]
-            )
+    def process_text(self, text: str) -> Dict[str, Any]:
+        """Process medical text through GLiNER and intent classification"""
+        try:
+            # Get intent using zero-shot classification
+            intent_result = self._classify_intent(text)
+            
+            # Get entities using GLiNER
+            entities = self._extract_entities_with_gliner(text)
+            
+            # Process with spaCy for temporal features
+            doc = self.nlp(text)
+            
+            # Extract temporal information
+            temporal_info = self._extract_temporal_info(doc)
+            
+            # Structure the entities
+            structured_entities = self._structure_entities(entities)
+            
+            # Add age to patient_info if found
+            if temporal_info.get("age"):
+                structured_entities["patient_info"].append({
+                    "text": temporal_info["age"][0],
+                    "type": "age",
+                    "confidence": 0.99
+                })
+                # Remove age from temporal_info
+                temporal_info.pop("age")
+            
+            return {
+                "intent": intent_result,
+                "entities": structured_entities,
+                "temporal_info": temporal_info,
+                "raw_text": text,
+                "processed_at": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error processing text: {str(e)}")
+            raise
