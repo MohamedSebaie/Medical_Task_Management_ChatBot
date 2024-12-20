@@ -1,6 +1,3 @@
-Here's a polished README.md file optimized for GitHub with detailed formatting and comprehensive information:
-
-```markdown
 # Medical NLP Pipeline 🏥
 
 ![GitHub](https://img.shields.io/github/license/yourusername/medical-nlp-pipeline)
