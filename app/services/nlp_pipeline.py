@@ -1,5 +1,3 @@
-# app/services/nlp_pipeline.py
-
 import logging
 from typing import Dict, List, Any, Optional
 from transformers import pipeline # type: ignore
