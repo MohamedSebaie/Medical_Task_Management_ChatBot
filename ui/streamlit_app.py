@@ -89,6 +89,35 @@ st.markdown("""
         background-color: #3498DB !important;
         color: white !important;
     }
+    .chat-container {
+        padding: 10px;
+        margin-bottom: 20px;
+    }
+    .user-message {
+        background-color: #FF6B6B;
+        color: white;
+        padding: 10px 15px;
+        border-radius: 15px;
+        margin: 5px 0;
+        max-width: 80%;
+        margin-left: auto;
+        margin-right: 20px;
+    }
+    .assistant-message {
+        background-color: #4CAF50;
+        color: white;
+        padding: 10px 15px;
+        border-radius: 15px;
+        margin: 5px 0;
+        max-width: 80%;
+        margin-right: auto;
+        margin-left: 20px;
+    }
+    .timestamp {
+        font-size: 0.8em;
+        color: #666;
+        margin: 0 20px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -97,6 +126,8 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "conversation_history" not in st.session_state:
     st.session_state.conversation_history = []
+if "chat_history" not in st.session_state:  # Add this
+    st.session_state.chat_history = []
 if "last_response" not in st.session_state:
     st.session_state.last_response = None
 if "processed_texts" not in st.session_state:
@@ -706,58 +737,98 @@ def show_data_views():
         else:
             st.info("No entity data available. Process some medical text first.")
 
+def format_response_json(response_data):
+    """Format the response data into a clean JSON string"""
+    if isinstance(response_data, dict):
+        intent = response_data.get('intent', {}).get('primary_intent')
+        entities = response_data.get('entities', {})
+        
+        # Create a simplified JSON structure
+        formatted_json = {
+            "intent": intent,
+            "entities": {}
+        }
+        
+        # Extract relevant entity information
+        for category, items in entities.items():
+            for item in items:
+                if item['type'] in ['patient', 'gender', 'age', 'condition', 'medication', 'dosage', 'frequency']:
+                    formatted_json["entities"][item['type']] = item['text']
+        
+        return json.dumps(formatted_json, indent=2)
+    return str(response_data)
+
 def show_chat_interface():
-    """Display chat interface page"""
+    """Display chat interface page with enhanced chat history"""
     st.title("Medical Assistant Chat 🏥")
     
     # Display chat history
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.write(message["content"])
-    
-    # Chat input
-    if prompt := st.chat_input("Type your medical command here..."):
-        # Add user message to chat
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        st.session_state.conversation_history.append(prompt)
-        
-        with st.chat_message("user"):
-            st.write(prompt)
-        
-        # Process the command
-        with st.spinner("Processing..."):
-            response = process_command(prompt)
-        
-        # Display assistant response
-        with st.chat_message("assistant"):
-            if response["success"]:
-                result = response["result"]
-                
-                # Display visualizations in columns
+    for message in st.session_state.chat_history:
+        if message['is_user']:
+            st.markdown(f"""
+                <div class="chat-container">
+                    <div class="user-message">{message['message']}</div>
+                    <div class="timestamp" style="text-align: right">{message['timestamp']}</div>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+                <div class="chat-container">
+                    <div class="assistant-message">{message['message']}</div>
+                    <div class="timestamp">{message['timestamp']}</div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Display JSON response if available
+            if message.get('result'):
+                st.code(format_response_json(message['result']), language='json')
+            
+            # Display visualization for assistant responses if result exists
+            if message.get('result'):
+                result = message['result']
                 col1, col2 = st.columns(2)
                 with col1:
                     display_intent_confidence(result["intent"])
                 with col2:
                     fig = visualize_entities(result["entities"])
                     st.plotly_chart(fig)
-                
-                # Display extracted information
                 display_extracted_info(result)
-                
-                # Show raw JSON if enabled
-                if st.session_state.get("show_raw_output", False):
-                    st.markdown("#### Raw API Output")
-                    st.markdown('<div class="json-output">', unsafe_allow_html=True)
-                    st.json(response)
-                    st.markdown('</div>', unsafe_allow_html=True)
-            else:
-                st.error(f"Error: {response.get('error', 'Unknown error')}")
+    
+    # Chat input
+    if prompt := st.chat_input("Type your medical command here..."):
+        # Add user message to chat history
+        st.session_state.chat_history.append({
+            'message': prompt,
+            'is_user': True,
+            'timestamp': datetime.now().strftime("%H:%M:%S")
+        })
+        
+        # Process the command
+        with st.spinner("Processing..."):
+            response = process_command(prompt)
         
         # Add assistant response to chat history
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": "Analysis completed. See results above."
-        })
+        if response["success"]:
+            st.session_state.chat_history.append({
+                'message': "Analysis completed. See results above.",
+                'is_user': False,
+                'timestamp': datetime.now().strftime("%H:%M:%S"),
+                'result': response["result"]
+            })
+        else:
+            st.session_state.chat_history.append({
+                'message': f"Error: {response.get('error', 'Unknown error')}",
+                'is_user': False,
+                'timestamp': datetime.now().strftime("%H:%M:%S")
+            })
+        
+        # Use st.rerun()
+        st.rerun()
+
+def clear_chat_history():
+    """Clear the chat history"""
+    st.session_state.chat_history = []
+    
 
 def main():
     # Sidebar navigation
@@ -767,6 +838,8 @@ def main():
     # Settings
     st.sidebar.header("Settings")
     st.session_state.show_raw_output = st.sidebar.checkbox("Show Raw API Output", value=False)
+    if st.sidebar.button("Clear Chat History"):
+        clear_chat_history()
     
     # Display selected page
     if page == "Chat Interface":
