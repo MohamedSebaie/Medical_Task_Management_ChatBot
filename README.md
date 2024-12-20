@@ -1,6 +1,6 @@
 # Medical NLP Pipeline 🏥
 
-![GitHub](https://img.shields.io/github/license/yourusername/medical-nlp-pipeline)
+![GitHub](https://img.shields.io/github/license/mohamedsebaie/Medical_Task_Management_ChatBot)
 ![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)
 
