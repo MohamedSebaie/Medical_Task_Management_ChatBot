@@ -64,8 +64,8 @@ uvicorn>=0.22.0
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/yourusername/medical-nlp-pipeline.git
-cd medical-nlp-pipeline
+git clone https://github.com/MohamedSebaie/Medical_Task_Management_ChatBot.git
+cd Medical_Task_Management_ChatBot
 ```
 
 2. **Create a virtual environment**
