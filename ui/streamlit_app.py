@@ -90,43 +90,77 @@ st.markdown("""
         color: white !important;
     }
     .chat-container {
-        padding: 10px;
-        margin-bottom: 20px;
+        display: flex;
+        align-items: flex-start;
+        padding: 1rem;
+        margin-bottom: 0.5rem;
+        width: 100%;
     }
-    .user-message {
-        background-color: #FF6B6B;
-        color: white;
-        padding: 10px 15px;
-        border-radius: 15px;
-        margin: 5px 0;
+    
+    .chat-icon {
+        font-size: 2.5rem;  /* Increased icon size */
+        margin: 0 0.8rem;   /* Increased margin */
+        min-width: 45px;    /* Increased min-width */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .message-container {
+        display: flex;
+        flex-direction: column;
         max-width: 80%;
-        margin-left: auto;
-        margin-right: 20px;
     }
+    
+    .user-container {
+        flex-direction: row-reverse;
+    }
+    
+    .user-message {
+        background-color: #5B8FF9;
+        color: white;
+        padding: 0.8rem 1rem;
+        border-radius: 15px 15px 0 15px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
     .assistant-message {
         background-color: #4CAF50;
         color: white;
-        padding: 10px 15px;
-        border-radius: 15px;
-        margin: 5px 0;
-        max-width: 80%;
-        margin-right: auto;
-        margin-left: 20px;
+        padding: 0.8rem 1rem;
+        border-radius: 15px 15px 15px 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    .timestamp {
-        font-size: 0.8em;
-        color: #666;
-        margin: 0 20px;
-    }
+    
     .follow-up-message {
-        background-color: #82C09A;  /* Light green color */
+        background-color: #00ACC1;
         color: white;
-        padding: 10px 15px;
-        border-radius: 15px;
-        margin: 5px 0;
-        max-width: 80%;
-        margin-right: auto;
-        margin-left: 20px;
+        padding: 0.8rem 1rem;
+        border-radius: 15px 15px 15px 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .timestamp {
+        font-size: 0.75rem;
+        color: #666;
+        margin-top: 0.25rem;
+        text-align: right;
+    }
+    
+    .user-timestamp {
+        text-align: right;
+    }
+    
+    .assistant-timestamp {
+        text-align: left;
+    }
+    .error-message {
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 0.8rem 1rem;
+            border-radius: 15px;
+            border: 1px solid #ef9a9a;
+            margin: 10px 0;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -148,6 +182,8 @@ if "medications" not in st.session_state:
     st.session_state.medications = pd.DataFrame(columns=['patient', 'medication', 'dosage', 'frequency'])
 if "appointments" not in st.session_state:
     st.session_state.appointments = pd.DataFrame(columns=['patient', 'date', 'time', 'department'])
+if "pipeline_type" not in st.session_state:
+    st.session_state.pipeline_type = "transformer"
 
 def process_command(text: str) -> Dict[str, Any]:
     """Send command to API and get response"""
@@ -158,35 +194,39 @@ def process_command(text: str) -> Dict[str, Any]:
             api_url,
             json={
                 "text": text,
-                "conversation_history": st.session_state.conversation_history
-            }
+                "conversation_history": st.session_state.conversation_history,
+                "pipeline_type": st.session_state.pipeline_type
+            },
+            timeout=30  # Add timeout
         )
         response.raise_for_status()
         result = response.json()
         
-        # Debug print
-        print("API Response:", result)
+        if not result.get("success"):
+            error_msg = result.get("error", "Unknown error occurred")
+            st.error(f"Processing Error: {error_msg}")
+            return result
+            
+        # Validate response structure
+        if "result" not in result or "intent" not in result["result"]:
+            st.error("Invalid response format from server")
+            return {
+                "success": False,
+                "error": "Invalid response format"
+            }
         
-        # Update session state with processed data
+        # Update session state
         if result["success"]:
             st.session_state.processed_texts.append(result["result"])
             update_session_data(result["result"])
-            
-            # Explicitly check for medication-related intent and add follow-up
-            if result["result"]["intent"]["primary_intent"] == "assign_medication":
-                med_entities = result["result"]["entities"].get("medical_info", [])
-                medication = next((e["text"] for e in med_entities if e["type"] == "medication"), None)
-                dosage = next((e["text"] for e in med_entities if e["type"] == "dosage"), None)
-                frequency = next((e["text"] for e in med_entities if e["type"] == "frequency"), None)
-                
-                if medication and not dosage:
-                    result["result"]["follow_up_question"] = f"What is the dosage for {medication}?"
-                elif medication and dosage and not frequency:
-                    result["result"]["follow_up_question"] = f"How often should {medication} be taken?"
-            
+        
         return result
+        
     except requests.exceptions.RequestException as e:
         st.error(f"API Error: {str(e)}")
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        st.error(f"Unexpected Error: {str(e)}")
         return {"success": False, "error": str(e)}
 
 def update_session_data(result: Dict[str, Any]):
@@ -803,6 +843,24 @@ def format_response_json(response_data):
         return json.dumps(formatted_json, indent=2)
     return str(response_data)
 
+def get_nurse_icon():
+    return """
+    <div class="chat-icon">
+        <svg viewBox="0 0 24 24" fill="#5B8FF9">
+            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+        </svg>
+    </div>
+    """
+
+def get_bot_icon():
+    return """
+    <div class="chat-icon">
+        <svg viewBox="0 0 24 24" fill="#4CAF50">
+            <path d="M20 9V7c0-1.1-.9-2-2-2h-3c0-1.66-1.34-3-3-3S9 3.34 9 5H6c-1.1 0-2 .9-2 2v2c-1.66 0-3 1.34-3 3s1.34 3 3 3v2c0 1.1.9 2 2 2h3c0 1.66 1.34 3 3 3s3-1.34 3-3h3c1.1 0 2-.9 2-2v-2c1.66 0 3-1.34 3-3s-1.34-3-3-3zM7.5 11.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5S9.83 13 9 13s-1.5-.67-1.5-1.5zM16 17H8v-2h8v2zm-1-4c-.83 0-1.5-.67-1.5-1.5S14.17 10 15 10s1.5.67 1.5 1.5S15.83 13 15 13z"/>
+        </svg>
+    </div>
+    """
+
 def show_chat_interface():
     """Display chat interface page with enhanced chat history"""
     st.title("Medical Task Management ChatBot 🏥")
@@ -810,19 +868,45 @@ def show_chat_interface():
     # Display chat history
     for message in st.session_state.chat_history:
         if message['is_user']:
-            st.markdown(f"""
-                <div class="chat-container">
-                    <div class="user-message">{message['message']}</div>
-                    <div class="timestamp" style="text-align: right">{message['timestamp']}</div>
+            st.markdown(
+                f"""
+                <div class="chat-container user-container">
+                    <div class="chat-icon">👩‍⚕️</div>
+                    <div class="message-container">
+                        <div class="user-message">{message['message']}</div>
+                        <div class="timestamp user-timestamp">{message['timestamp']}</div>
+                    </div>
                 </div>
-            """, unsafe_allow_html=True)
+                """,
+                unsafe_allow_html=True
+            )
         else:
-            st.markdown(f"""
-                <div class="chat-container">
-                    <div class="assistant-message">{message['message']}</div>
-                    <div class="timestamp">{message['timestamp']}</div>
-                </div>
-            """, unsafe_allow_html=True)
+            if message.get('is_follow_up'):
+                st.markdown(
+                    f"""
+                    <div class="chat-container">
+                        <div class="chat-icon">🤖</div>
+                        <div class="message-container">
+                            <div class="follow-up-message">{message['message']}</div>
+                            <div class="timestamp assistant-timestamp">{message['timestamp']}</div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f"""
+                    <div class="chat-container">
+                        <div class="chat-icon">🤖</div>
+                        <div class="message-container">
+                            <div class="assistant-message">{message['message']}</div>
+                            <div class="timestamp assistant-timestamp">{message['timestamp']}</div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
             
             # Display JSON response if available
             if message.get('result'):
@@ -855,7 +939,57 @@ def show_chat_interface():
         if response["success"]:
             result = response["result"]
             
-            # Add initial response to chat history
+            # Check for medication validation first
+            if result["intent"]["primary_intent"] == "assign_medication":
+                med_entities = result["entities"].get("medical_info", [])
+                medication = next((e["text"] for e in med_entities if e["type"] == "medication"), None)
+                
+                if "medication_validation" in result:
+                    validation = result["medication_validation"]
+                    
+                    # Add validation message
+                    st.session_state.chat_history.append({
+                        'message': validation["message"],
+                        'is_user': False,
+                        'timestamp': datetime.now().strftime("%H:%M:%S"),
+                        'is_follow_up': False
+                    })
+                    
+                    # If medication is invalid or needs more information
+                    if not validation["is_valid"]:
+                        st.session_state.chat_history.append({
+                            'message': validation["follow_up_question"],
+                            'is_user': False,
+                            'timestamp': datetime.now().strftime("%H:%M:%S"),
+                            'is_follow_up': True
+                        })
+                        st.rerun()
+                        return
+                    
+                    # If medication is valid but needs dosage/frequency
+                    if validation["validation_step"] in ["dosage", "frequency"]:
+                        st.session_state.chat_history.append({
+                            'message': validation["follow_up_question"],
+                            'is_user': False,
+                            'timestamp': datetime.now().strftime("%H:%M:%S"),
+                            'is_follow_up': True
+                        })
+                        st.rerun()
+                        return
+
+            # Add regular follow-up questions if no medication validation or after validation complete
+            if "follow_up_question" in result:
+                follow_up = result["follow_up_question"]
+                st.session_state.chat_history.append({
+                    'message': follow_up,
+                    'is_user': False,
+                    'timestamp': datetime.now().strftime("%H:%M:%S"),
+                    'is_follow_up': True
+                })
+                st.rerun()
+                return
+            
+            # Add analysis completion message and results
             st.session_state.chat_history.append({
                 'message': "Analysis completed. See results below.",
                 'is_user': False,
@@ -863,36 +997,6 @@ def show_chat_interface():
                 'result': result
             })
             
-            # Check for medication assignment and missing information
-            if result["intent"]["primary_intent"] == "assign_medication":
-                med_entities = result["entities"].get("medical_info", [])
-                medication = next((e["text"] for e in med_entities if e["type"] == "medication"), None)
-                dosage = next((e["text"] for e in med_entities if e["type"] == "dosage"), None)
-                frequency = next((e["text"] for e in med_entities if e["type"] == "frequency"), None)
-                
-                if medication:
-                    if not dosage:
-                        follow_up = f"What is the dosage for {medication}?"
-                        st.session_state.chat_history.append({
-                            'message': follow_up,
-                            'is_user': False,
-                            'timestamp': datetime.now().strftime("%H:%M:%S")
-                        })
-                    elif not frequency:
-                        follow_up = f"How often should {medication} be taken?"
-                        st.session_state.chat_history.append({
-                            'message': follow_up,
-                            'is_user': False,
-                            'timestamp': datetime.now().strftime("%H:%M:%S")
-                        })
-            
-            # Add any explicit follow-up questions from the API
-            if "follow_up_question" in result:
-                st.session_state.chat_history.append({
-                    'message': result["follow_up_question"],
-                    'is_user': False,
-                    'timestamp': datetime.now().strftime("%H:%M:%S")
-                })
         else:
             st.session_state.chat_history.append({
                 'message': f"Error: {response.get('error', 'Unknown error')}",
@@ -907,46 +1011,45 @@ def handle_response(response: Dict[str, Any]):
     if response["success"]:
         result = response["result"]
         
-        # Display medication validation if present
-        if "medication_validation" in result:
-            validation = result["medication_validation"]
-            if validation["is_valid"]:
-                st.success(validation["message"])
-            else:
-                st.error(validation["message"])
-        
-        # Display follow-up question if present
-        if "follow_up_question" in result:
-            follow_up = result["follow_up_question"]
-            st.session_state.chat_history.append({
-                'message': follow_up,
-                'is_user': False,
-                'timestamp': datetime.now().strftime("%H:%M:%S")
-            })
-            
-            # Add follow-up input
-            with st.form(key='follow_up_form'):
-                follow_up_response = st.text_input("Your response:")
-                if st.form_submit_button("Submit"):
-                    # Process follow-up response
+        # Handle medication validation
+        if result["intent"]["primary_intent"] == "assign_medication":
+            if "medication_validation" in result:
+                validation = result["medication_validation"]
+                
+                # Add validation message to chat
+                st.session_state.chat_history.append({
+                    'message': validation["message"],
+                    'is_user': False,
+                    'timestamp': datetime.now().strftime("%H:%M:%S"),
+                    'is_follow_up': False
+                })
+                
+                # If validation failed or needs more info
+                if not validation["is_valid"] or validation["validation_step"] != "complete":
                     st.session_state.chat_history.append({
-                        'message': follow_up_response,
-                        'is_user': True,
-                        'timestamp': datetime.now().strftime("%H:%M:%S")
+                        'message': validation["follow_up_question"],
+                        'is_user': False,
+                        'timestamp': datetime.now().strftime("%H:%M:%S"),
+                        'is_follow_up': True
                     })
-                    # Process the follow-up response
-                    new_response = process_command(follow_up_response)
-                    if new_response["success"]:
-                        st.session_state.chat_history.append({
-                            'message': "Analysis completed. See results below.",
-                            'is_user': False,
-                            'timestamp': datetime.now().strftime("%H:%M:%S"),
-                            'result': new_response["result"]
-                        })
-                        # Handle the new response recursively
-                        handle_response(new_response)
-                    st.rerun()
-
+                    
+                    # Add follow-up input
+                    with st.form(key='follow_up_form'):
+                        follow_up_response = st.text_input("Your response:")
+                        if st.form_submit_button("Submit"):
+                            # Process follow-up response
+                            st.session_state.chat_history.append({
+                                'message': follow_up_response,
+                                'is_user': True,
+                                'timestamp': datetime.now().strftime("%H:%M:%S")
+                            })
+                            # Process the follow-up response
+                            new_response = process_command(follow_up_response)
+                            if new_response["success"]:
+                                # Handle the new response recursively
+                                handle_response(new_response)
+                            st.rerun()
+                    return
 def clear_chat_history():
     """Clear the chat history"""
     st.session_state.chat_history = []
@@ -956,6 +1059,14 @@ def main():
     # Sidebar navigation
     st.sidebar.title("Navigation")
     page = st.sidebar.radio("Go to", ["Chat Interface", "Dashboard", "Data Views"])
+    
+    # Add pipeline selection
+    st.sidebar.header("Processing Mode")
+    st.session_state.pipeline_type = st.sidebar.radio(
+        "Select Processing Mode",
+        ["transformer", "llm"],
+        format_func=lambda x: "Transformer-based" if x == "transformer" else "LLM-based"
+    )
     
     # Settings
     st.sidebar.header("Settings")

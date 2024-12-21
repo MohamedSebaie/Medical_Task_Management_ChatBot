@@ -292,27 +292,19 @@ class MedicalNLPPipeline:
                 # Validate medication if present
                 if medication:
                     validator = MedicationValidator()
-                    is_valid, message = validator.validate_medication(medication, dosage, frequency)
-                    result["medication_validation"] = {
-                        "is_valid": is_valid,
-                        "message": message
-                    }
-                
-                # Generate appropriate follow-up question
-                if not dosage:
-                    result["follow_up_question"] = f"What is the dosage for {medication}?"
-                elif not frequency:
-                    result["follow_up_question"] = f"How often should {medication} be taken?"
-
-            elif intent_result["primary_intent"] == "add_patient":
-                patient_entities = structured_entities.get("patient_info", [])
-                if not any(e["type"] == "age" for e in patient_entities):
-                    result["follow_up_question"] = "What is the patient's age?"
-                elif not any(e["type"] == "gender" for e in patient_entities):
-                    result["follow_up_question"] = "What is the patient's gender?"
+                    validation_result = validator.validate_medication(medication, dosage, frequency)
+                    result["medication_validation"] = validation_result
+                    
+                    # Add follow-up question based on validation result
+                    if not validation_result["is_valid"]:
+                        result["follow_up_question"] = validation_result["follow_up_question"]
+                    elif validation_result["validation_step"] == "dosage":
+                        result["follow_up_question"] = validation_result["follow_up_question"]
+                    elif validation_result["validation_step"] == "frequency":
+                        result["follow_up_question"] = validation_result["follow_up_question"]
 
             return result
-            
+                
         except Exception as e:
             logger.error(f"Error processing text: {str(e)}")
             raise
