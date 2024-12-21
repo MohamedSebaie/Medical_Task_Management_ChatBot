@@ -43,7 +43,10 @@ async def process_command(request: CommandRequest) -> Dict[str, Any]:
     try:
         result = nlp_pipeline.process_text(request.text)
         
-        return {
+        # Debug print
+        print("Processing result:", result)
+        
+        response = {
             "success": True,
             "result": {
                 "intent": {
@@ -59,6 +62,16 @@ async def process_command(request: CommandRequest) -> Dict[str, Any]:
                 "processed_at": result["processed_at"]
             }
         }
+        
+        # Add follow-up question if present
+        if "follow_up_question" in result:
+            response["result"]["follow_up_question"] = result["follow_up_question"]
+            
+        # Add medication validation if present
+        if "medication_validation" in result:
+            response["result"]["medication_validation"] = result["medication_validation"]
+            
+        return response
     except Exception as e:
         logger.error(f"Error processing command: {str(e)}")
         return {"success": False, "error": str(e)}

@@ -53,3 +53,4 @@ htmlcov/
 
 # Docker
 .docker/
+.DS_Store

@@ -118,6 +118,16 @@ st.markdown("""
         color: #666;
         margin: 0 20px;
     }
+    .follow-up-message {
+        background-color: #82C09A;  /* Light green color */
+        color: white;
+        padding: 10px 15px;
+        border-radius: 15px;
+        margin: 5px 0;
+        max-width: 80%;
+        margin-right: auto;
+        margin-left: 20px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -154,10 +164,25 @@ def process_command(text: str) -> Dict[str, Any]:
         response.raise_for_status()
         result = response.json()
         
+        # Debug print
+        print("API Response:", result)
+        
         # Update session state with processed data
         if result["success"]:
             st.session_state.processed_texts.append(result["result"])
             update_session_data(result["result"])
+            
+            # Explicitly check for medication-related intent and add follow-up
+            if result["result"]["intent"]["primary_intent"] == "assign_medication":
+                med_entities = result["result"]["entities"].get("medical_info", [])
+                medication = next((e["text"] for e in med_entities if e["type"] == "medication"), None)
+                dosage = next((e["text"] for e in med_entities if e["type"] == "dosage"), None)
+                frequency = next((e["text"] for e in med_entities if e["type"] == "frequency"), None)
+                
+                if medication and not dosage:
+                    result["result"]["follow_up_question"] = f"What is the dosage for {medication}?"
+                elif medication and dosage and not frequency:
+                    result["result"]["follow_up_question"] = f"How often should {medication} be taken?"
             
         return result
     except requests.exceptions.RequestException as e:
@@ -755,20 +780,25 @@ def show_data_views():
 def format_response_json(response_data):
     """Format the response data into a clean JSON string"""
     if isinstance(response_data, dict):
-        intent = response_data.get('intent', {}).get('primary_intent')
-        entities = response_data.get('entities', {})
-        
-        # Create a simplified JSON structure
         formatted_json = {
-            "intent": intent,
+            "intent": response_data.get('intent', {}).get('primary_intent'),
             "entities": {}
         }
         
-        # Extract relevant entity information
+        # Add entities
+        entities = response_data.get('entities', {})
         for category, items in entities.items():
             for item in items:
                 if item['type'] in ['patient', 'gender', 'age', 'condition', 'medication', 'dosage', 'frequency']:
                     formatted_json["entities"][item['type']] = item['text']
+        
+        # Add medication validation if present
+        if 'medication_validation' in response_data:
+            formatted_json["medication_validation"] = response_data['medication_validation']
+        
+        # Add follow-up question if present
+        if 'follow_up_question' in response_data:
+            formatted_json["follow_up_question"] = response_data['follow_up_question']
         
         return json.dumps(formatted_json, indent=2)
     return str(response_data)
@@ -822,14 +852,47 @@ def show_chat_interface():
         with st.spinner("Processing..."):
             response = process_command(prompt)
         
-        # Add assistant response to chat history
         if response["success"]:
+            result = response["result"]
+            
+            # Add initial response to chat history
             st.session_state.chat_history.append({
                 'message': "Analysis completed. See results below.",
                 'is_user': False,
                 'timestamp': datetime.now().strftime("%H:%M:%S"),
-                'result': response["result"]
+                'result': result
             })
+            
+            # Check for medication assignment and missing information
+            if result["intent"]["primary_intent"] == "assign_medication":
+                med_entities = result["entities"].get("medical_info", [])
+                medication = next((e["text"] for e in med_entities if e["type"] == "medication"), None)
+                dosage = next((e["text"] for e in med_entities if e["type"] == "dosage"), None)
+                frequency = next((e["text"] for e in med_entities if e["type"] == "frequency"), None)
+                
+                if medication:
+                    if not dosage:
+                        follow_up = f"What is the dosage for {medication}?"
+                        st.session_state.chat_history.append({
+                            'message': follow_up,
+                            'is_user': False,
+                            'timestamp': datetime.now().strftime("%H:%M:%S")
+                        })
+                    elif not frequency:
+                        follow_up = f"How often should {medication} be taken?"
+                        st.session_state.chat_history.append({
+                            'message': follow_up,
+                            'is_user': False,
+                            'timestamp': datetime.now().strftime("%H:%M:%S")
+                        })
+            
+            # Add any explicit follow-up questions from the API
+            if "follow_up_question" in result:
+                st.session_state.chat_history.append({
+                    'message': result["follow_up_question"],
+                    'is_user': False,
+                    'timestamp': datetime.now().strftime("%H:%M:%S")
+                })
         else:
             st.session_state.chat_history.append({
                 'message': f"Error: {response.get('error', 'Unknown error')}",
@@ -837,8 +900,52 @@ def show_chat_interface():
                 'timestamp': datetime.now().strftime("%H:%M:%S")
             })
         
-        # Use st.rerun()
         st.rerun()
+
+def handle_response(response: Dict[str, Any]):
+    """Handle API response and generate appropriate UI elements"""
+    if response["success"]:
+        result = response["result"]
+        
+        # Display medication validation if present
+        if "medication_validation" in result:
+            validation = result["medication_validation"]
+            if validation["is_valid"]:
+                st.success(validation["message"])
+            else:
+                st.error(validation["message"])
+        
+        # Display follow-up question if present
+        if "follow_up_question" in result:
+            follow_up = result["follow_up_question"]
+            st.session_state.chat_history.append({
+                'message': follow_up,
+                'is_user': False,
+                'timestamp': datetime.now().strftime("%H:%M:%S")
+            })
+            
+            # Add follow-up input
+            with st.form(key='follow_up_form'):
+                follow_up_response = st.text_input("Your response:")
+                if st.form_submit_button("Submit"):
+                    # Process follow-up response
+                    st.session_state.chat_history.append({
+                        'message': follow_up_response,
+                        'is_user': True,
+                        'timestamp': datetime.now().strftime("%H:%M:%S")
+                    })
+                    # Process the follow-up response
+                    new_response = process_command(follow_up_response)
+                    if new_response["success"]:
+                        st.session_state.chat_history.append({
+                            'message': "Analysis completed. See results below.",
+                            'is_user': False,
+                            'timestamp': datetime.now().strftime("%H:%M:%S"),
+                            'result': new_response["result"]
+                        })
+                        # Handle the new response recursively
+                        handle_response(new_response)
+                    st.rerun()
 
 def clear_chat_history():
     """Clear the chat history"""

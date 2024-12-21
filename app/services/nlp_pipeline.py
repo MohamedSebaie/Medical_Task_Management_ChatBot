@@ -1,5 +1,6 @@
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
+from app.services.medication_validator import MedicationValidator
 from transformers import pipeline # type: ignore
 from gliner import GLiNER # type: ignore
 import spacy # type: ignore
@@ -201,6 +202,51 @@ class MedicalNLPPipeline:
             "confidence": result["scores"][0]
         }
 
+    def generate_follow_up_question(self, result: Dict[str, Any]) -> Optional[str]:
+        """Generate follow-up questions based on intent and entities"""
+        intent = result["intent"]["primary_intent"]
+        entities = result["entities"]
+        
+        # Follow-up questions based on intent
+        if intent == "assign_medication":
+            # Check if we have all needed information for medication
+            med_info = next((e for e in entities.get("medical_info", []) 
+                            if e["type"] == "medication"), None)
+            dosage_info = next((e for e in entities.get("medical_info", []) 
+                            if e["type"] == "dosage"), None)
+            frequency_info = next((e for e in entities.get("medical_info", []) 
+                                if e["type"] == "frequency"), None)
+            
+            if not med_info:
+                return "What medication would you like to prescribe?"
+            if not dosage_info:
+                return f"What is the dosage for {med_info['text']}?"
+            if not frequency_info:
+                return f"How often should the patient take {med_info['text']}?"
+                
+        elif intent == "add_patient":
+            # Check if we have complete patient information
+            patient_entities = entities.get("patient_info", [])
+            has_name = any(e["type"] == "patient" for e in patient_entities)
+            has_age = any(e["type"] == "age" for e in patient_entities)
+            has_gender = any(e["type"] == "gender" for e in patient_entities)
+            
+            if not has_name:
+                return "What is the patient's name?"
+            if not has_age:
+                return "What is the patient's age?"
+            if not has_gender:
+                return "What is the patient's gender?"
+                
+        elif intent == "schedule_followup":
+            temporal_info = result["temporal_info"]
+            if not temporal_info.get("dates"):
+                return "On which date would you like to schedule the follow-up?"
+            if not temporal_info.get("times"):
+                return "At what time should the follow-up be scheduled?"
+                
+        return None
+
     def process_text(self, text: str) -> Dict[str, Any]:
         """Process medical text through GLiNER and intent classification"""
         try:
@@ -228,13 +274,44 @@ class MedicalNLPPipeline:
                 })
                 temporal_info.pop("age")
             
-            return {
-                "intent": intent_result,
-                "entities": structured_entities,
-                "temporal_info": temporal_info,
-                "raw_text": text,
-                "processed_at": datetime.now().isoformat()
+            result = {
+            "intent": intent_result,
+            "entities": structured_entities,
+            "temporal_info": temporal_info,
+            "raw_text": text,
+            "processed_at": datetime.now().isoformat()
             }
+            
+            # Add medication validation and follow-up questions
+            if intent_result["primary_intent"] == "assign_medication":
+                med_entities = structured_entities.get("medical_info", [])
+                medication = next((e["text"] for e in med_entities if e["type"] == "medication"), None)
+                dosage = next((e["text"] for e in med_entities if e["type"] == "dosage"), None)
+                frequency = next((e["text"] for e in med_entities if e["type"] == "frequency"), None)
+                
+                # Validate medication if present
+                if medication:
+                    validator = MedicationValidator()
+                    is_valid, message = validator.validate_medication(medication, dosage, frequency)
+                    result["medication_validation"] = {
+                        "is_valid": is_valid,
+                        "message": message
+                    }
+                
+                # Generate appropriate follow-up question
+                if not dosage:
+                    result["follow_up_question"] = f"What is the dosage for {medication}?"
+                elif not frequency:
+                    result["follow_up_question"] = f"How often should {medication} be taken?"
+
+            elif intent_result["primary_intent"] == "add_patient":
+                patient_entities = structured_entities.get("patient_info", [])
+                if not any(e["type"] == "age" for e in patient_entities):
+                    result["follow_up_question"] = "What is the patient's age?"
+                elif not any(e["type"] == "gender" for e in patient_entities):
+                    result["follow_up_question"] = "What is the patient's gender?"
+
+            return result
             
         except Exception as e:
             logger.error(f"Error processing text: {str(e)}")
