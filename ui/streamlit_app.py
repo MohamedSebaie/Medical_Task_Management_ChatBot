@@ -825,7 +825,7 @@ def show_chat_interface():
         # Add assistant response to chat history
         if response["success"]:
             st.session_state.chat_history.append({
-                'message': "Analysis completed. See results above.",
+                'message': "Analysis completed. See results below.",
                 'is_user': False,
                 'timestamp': datetime.now().strftime("%H:%M:%S"),
                 'result': response["result"]

@@ -1,0 +1,112 @@
+{
+    "paracetamol": {
+        "generic_name": "acetaminophen",
+        "dosages": ["325mg", "500mg", "650mg", "1000mg"],
+        "frequencies": ["every 4-6 hours", "twice a day", "three times a day", "four times a day"],
+        "max_daily_dose": "4000mg",
+        "forms": ["tablet", "capsule", "liquid"],
+        "category": "analgesic",
+        "conditions": ["pain", "fever", "headache"],
+        "contraindications": ["liver disease", "alcoholism"],
+        "side_effects": ["nausea", "rash", "liver damage"]
+    },
+    "ibuprofen": {
+        "generic_name": "ibuprofen",
+        "dosages": ["200mg", "400mg", "600mg", "800mg"],
+        "frequencies": ["every 4-6 hours", "twice a day", "three times a day", "four times a day"],
+        "max_daily_dose": "3200mg",
+        "forms": ["tablet", "capsule", "liquid", "gel"],
+        "category": "NSAID",
+        "conditions": ["pain", "inflammation", "fever", "arthritis"],
+        "contraindications": ["stomach ulcers", "kidney disease", "heart disease"],
+        "side_effects": ["stomach pain", "heartburn", "dizziness"]
+    },
+    "amoxicillin": {
+        "generic_name": "amoxicillin",
+        "dosages": ["250mg", "500mg", "875mg"],
+        "frequencies": ["every 8 hours", "twice a day", "three times a day"],
+        "max_daily_dose": "3000mg",
+        "forms": ["capsule", "tablet", "liquid"],
+        "category": "antibiotic",
+        "conditions": ["bacterial infections", "pneumonia", "bronchitis", "sinusitis"],
+        "contraindications": ["penicillin allergy"],
+        "side_effects": ["diarrhea", "nausea", "rash"]
+    },
+    "omeprazole": {
+        "generic_name": "omeprazole",
+        "dosages": ["10mg", "20mg", "40mg"],
+        "frequencies": ["once daily", "twice a day"],
+        "max_daily_dose": "80mg",
+        "forms": ["capsule", "tablet"],
+        "category": "proton pump inhibitor",
+        "conditions": ["acid reflux", "ulcers", "GERD"],
+        "contraindications": ["kidney disease"],
+        "side_effects": ["headache", "nausea", "vitamin B12 deficiency"]
+    },
+    "metformin": {
+        "generic_name": "metformin hydrochloride",
+        "dosages": ["500mg", "850mg", "1000mg"],
+        "frequencies": ["once daily", "twice a day", "three times a day"],
+        "max_daily_dose": "2550mg",
+        "forms": ["tablet", "extended-release tablet"],
+        "category": "antidiabetic",
+        "conditions": ["type 2 diabetes"],
+        "contraindications": ["kidney disease", "liver disease"],
+        "side_effects": ["diarrhea", "nausea", "vitamin B12 deficiency"]
+    },
+    "lisinopril": {
+        "generic_name": "lisinopril",
+        "dosages": ["2.5mg", "5mg", "10mg", "20mg", "40mg"],
+        "frequencies": ["once daily", "twice a day"],
+        "max_daily_dose": "80mg",
+        "forms": ["tablet"],
+        "category": "ACE inhibitor",
+        "conditions": ["hypertension", "heart failure"],
+        "contraindications": ["pregnancy", "angioedema"],
+        "side_effects": ["dry cough", "dizziness", "headache"]
+    },
+    "sertraline": {
+        "generic_name": "sertraline hydrochloride",
+        "dosages": ["25mg", "50mg", "100mg"],
+        "frequencies": ["once daily"],
+        "max_daily_dose": "200mg",
+        "forms": ["tablet", "capsule"],
+        "category": "SSRI antidepressant",
+        "conditions": ["depression", "anxiety", "OCD"],
+        "contraindications": ["MAO inhibitors"],
+        "side_effects": ["nausea", "insomnia", "sexual dysfunction"]
+    },
+    "albuterol": {
+        "generic_name": "salbutamol",
+        "dosages": ["90mcg/actuation"],
+        "frequencies": ["every 4-6 hours as needed"],
+        "max_daily_dose": "12 puffs",
+        "forms": ["inhaler", "nebulizer solution"],
+        "category": "bronchodilator",
+        "conditions": ["asthma", "COPD"],
+        "contraindications": ["tachycardia"],
+        "side_effects": ["tremor", "rapid heartbeat", "anxiety"]
+    },
+    "levothyroxine": {
+        "generic_name": "levothyroxine sodium",
+        "dosages": ["25mcg", "50mcg", "75mcg", "100mcg", "125mcg", "150mcg"],
+        "frequencies": ["once daily"],
+        "max_daily_dose": "200mcg",
+        "forms": ["tablet"],
+        "category": "thyroid hormone",
+        "conditions": ["hypothyroidism"],
+        "contraindications": ["thyrotoxicosis"],
+        "side_effects": ["weight changes", "anxiety", "heart palpitations"]
+    },
+    "warfarin": {
+        "generic_name": "warfarin sodium",
+        "dosages": ["1mg", "2mg", "2.5mg", "3mg", "4mg", "5mg", "6mg", "7.5mg", "10mg"],
+        "frequencies": ["once daily"],
+        "max_daily_dose": "10mg",
+        "forms": ["tablet"],
+        "category": "anticoagulant",
+        "conditions": ["blood clots", "atrial fibrillation"],
+        "contraindications": ["bleeding disorders", "pregnancy"],
+        "side_effects": ["bleeding", "bruising", "blood in urine"]
+    }
+}
