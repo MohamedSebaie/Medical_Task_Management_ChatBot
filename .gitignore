@@ -54,3 +54,4 @@ htmlcov/
 # Docker
 .docker/
 .DS_Store
+config/config.py

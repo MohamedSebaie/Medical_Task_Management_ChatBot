@@ -248,63 +248,59 @@ class MedicalNLPPipeline:
         return None
 
     def process_text(self, text: str) -> Dict[str, Any]:
-        """Process medical text through GLiNER and intent classification"""
         try:
-            # Get intent using zero-shot classification
             intent_result = self._classify_intent(text)
-            
-            # Get entities using GLiNER and pattern matching
             entities = self._extract_entities_with_gliner(text)
+            structured_entities = self._structure_entities(entities)
             
             # Process with spaCy for temporal features
             doc = self.nlp(text)
-            
-            # Extract temporal information
             temporal_info = self._extract_temporal_info(doc)
             
-            # Structure the entities
-            structured_entities = self._structure_entities(entities)
-            
-            # Add age to patient_info if found
+            # Add age to temporal_info if found
             if temporal_info.get("age"):
-                structured_entities["patient_info"].append({
+                structured_entities["temporal_info"].append({
                     "text": temporal_info["age"][0],
                     "type": "age",
                     "confidence": 0.99
                 })
-                temporal_info.pop("age")
             
             result = {
-            "intent": intent_result,
-            "entities": structured_entities,
-            "temporal_info": temporal_info,
-            "raw_text": text,
-            "processed_at": datetime.now().isoformat()
+                "intent": intent_result,
+                "entities": structured_entities,
+                "raw_text": text,
+                "processed_at": datetime.now().isoformat(),
+                "simplified_format": {
+                    "intent": intent_result["primary_intent"],
+                    "entities": {
+                        "patient": next((e["text"] for e in structured_entities["patient_info"] if e["type"] == "patient"), None),
+                        "gender": next((e["text"] for e in structured_entities["patient_info"] if e["type"] == "gender"), None),
+                        "age": next((e["text"] for e in structured_entities["temporal_info"] if e["type"] == "age"), None),
+                        "condition": next((e["text"] for e in structured_entities["medical_info"] if e["type"] == "condition"), None)
+                    }
+                }
             }
             
-            # Add medication validation and follow-up questions
-            if intent_result["primary_intent"] == "assign_medication":
-                med_entities = structured_entities.get("medical_info", [])
-                medication = next((e["text"] for e in med_entities if e["type"] == "medication"), None)
-                dosage = next((e["text"] for e in med_entities if e["type"] == "dosage"), None)
-                frequency = next((e["text"] for e in med_entities if e["type"] == "frequency"), None)
-                
-                # Validate medication if present
-                if medication:
-                    validator = MedicationValidator()
-                    validation_result = validator.validate_medication(medication, dosage, frequency)
-                    result["medication_validation"] = validation_result
-                    
-                    # Add follow-up question based on validation result
-                    if not validation_result["is_valid"]:
-                        result["follow_up_question"] = validation_result["follow_up_question"]
-                    elif validation_result["validation_step"] == "dosage":
-                        result["follow_up_question"] = validation_result["follow_up_question"]
-                    elif validation_result["validation_step"] == "frequency":
-                        result["follow_up_question"] = validation_result["follow_up_question"]
-
             return result
-                
         except Exception as e:
             logger.error(f"Error processing text: {str(e)}")
-            raise
+            return {
+                "intent": {"primary_intent": "unknown", "confidence": 0.5},
+                "entities": {
+                    "patient_info": [],
+                    "medical_info": [],
+                    "temporal_info": [],
+                    "location_info": []
+                },
+                "simplified_format": {
+                    "intent": "unknown",
+                    "entities": {
+                        "patient": None,
+                        "gender": None,
+                        "age": None,
+                        "condition": None
+                    }
+                },
+                "raw_text": text,
+                "processed_at": datetime.now().isoformat()
+            }

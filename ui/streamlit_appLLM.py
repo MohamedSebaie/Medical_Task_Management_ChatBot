@@ -1,11 +1,10 @@
-from fastapi import logger
 import streamlit as st # type: ignore
 import requests
 import json
 import plotly.graph_objects as go # type: ignore
 import plotly.express as px # type: ignore
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import pandas as pd
 
 # Configure page
@@ -331,76 +330,36 @@ def visualize_entities(entities: Dict[str, List]) -> go.Figure:
     return fig
 
 def display_extracted_info(result: Dict[str, Any]):
-    # Helper function to safely get entities
-    def get_entities(category: str) -> List[Dict[str, Any]]:
-        return result.get("entities", {}).get(category, [])
+    """Display extracted information in an organized and styled manner"""
+    st.markdown('<div class="extracted-info">', unsafe_allow_html=True)
     
-    # Helper function to safely extract entity text
-    def get_entity_text(entities: List[Dict], entity_type: str, alternate_types: List[str] = None) -> Optional[str]:
-        for entity in entities:
-            if entity.get("type") == entity_type:
-                return entity.get("text")
-            if alternate_types and entity.get("type") in alternate_types:
-                return entity.get("text")
-        return None
-
-    # Helper function to get age from multiple possible locations
-    def get_age(result: Dict[str, Any]) -> Optional[str]:
-        # Try getting age from temporal_info first
-        temporal_info = get_entities("temporal_info")
-        age = get_entity_text(temporal_info, "age")
-        if age:
-            return age
-        
-        # If not found, try getting from demographics in patient_info
-        patient_info = get_entities("patient_info")
-        for entity in patient_info:
-            if entity.get("type") == "demographics" and "years old" in entity.get("text", ""):
-                return entity.get("text")
-        return None
-
-    # Display patient information
-    patient_info = get_entities("patient_info")
-    if patient_info:
-        st.markdown("### Patient Information:")
-        for entity in patient_info:
-            st.markdown(f"• {entity.get('text', 'Unknown')} ({entity.get('type', 'Unknown')})")
+    # Patient Info
+    if result["entities"].get("patient_info"):
+        st.markdown('<div class="info-category">Patient Information:</div>', unsafe_allow_html=True)
+        for item in result["entities"]["patient_info"]:
+            st.markdown(f'<div class="info-item">• {item["text"]} ({item["type"]})</div>', unsafe_allow_html=True)
     
-    # Display medical information
-    medical_info = get_entities("medical_info")
-    if medical_info:
-        st.markdown("### Medical Information:")
-        for entity in medical_info:
-            st.markdown(f"• {entity.get('text', 'Unknown')} ({entity.get('type', 'Unknown')})")
-
-    # Display simplified entity format
-    st.markdown("### Simplified Format:")
+    # Medical Info
+    if result["entities"].get("medical_info"):
+        st.markdown('<div class="info-category">Medical Information:</div>', unsafe_allow_html=True)
+        for item in result["entities"]["medical_info"]:
+            st.markdown(f'<div class="info-item">• {item["text"]} ({item["type"]})</div>', unsafe_allow_html=True)
     
-    # Build entities dictionary with non-null values only
-    entities = {}
+    # Gender (from vital_sign category)
+    if result["entities"].get("vital_sign"):
+        st.markdown('<div class="info-category">Vital Information:</div>', unsafe_allow_html=True)
+        for item in result["entities"]["vital_sign"]:
+            if item["type"] == "gender":
+                st.markdown(f'<div class="info-item">• Gender: {item["text"]}</div>', unsafe_allow_html=True)
     
-    # Extract all possible entities
-    potential_entities = {
-        "patient": get_entity_text(patient_info, "patient", ["patient_name"]),
-        "gender": get_entity_text(patient_info, "gender"),
-        "age": get_age(result),  # Using the new get_age function
-        "condition": get_entity_text(medical_info, "condition", ["diagnosis"]),
-        "medication": get_entity_text(medical_info, "medication"),
-        "dosage": get_entity_text(medical_info, "dosage"),
-        "frequency": get_entity_text(medical_info, "frequency")
-    }
+    # Temporal Info
+    if any(result["temporal_info"].values()):
+        st.markdown('<div class="info-category">Temporal Information:</div>', unsafe_allow_html=True)
+        for key, values in result["temporal_info"].items():
+            if values:
+                st.markdown(f'<div class="info-item">• {key.title()}: {", ".join(values)}</div>', unsafe_allow_html=True)
     
-    # Only include non-null values
-    for key, value in potential_entities.items():
-        if value is not None:
-            entities[key] = value
-    
-    simplified = {
-        "intent": result.get("intent", {}).get("primary_intent", "unknown"),
-        "entities": entities
-    }
-    
-    st.code(json.dumps(simplified, indent=2), language="json")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def show_dashboard():
     """Display enhanced dashboard page"""
@@ -970,20 +929,17 @@ def show_chat_interface():
             if message.get('result') and not message.get('is_error'):
                 try:
                     result = message['result']
-                    if isinstance(result, dict) and "intent" in result:
+                    if "intent" in result and "entities" in result:
                         col1, col2 = st.columns(2)
                         with col1:
-                            if isinstance(result["intent"], dict):
-                                display_intent_confidence(result["intent"])
+                            display_intent_confidence(result["intent"])
                         with col2:
-                            if "entities" in result and isinstance(result["entities"], dict):
-                                fig = visualize_entities(result["entities"])
-                                st.plotly_chart(fig)
+                            fig = visualize_entities(result["entities"])
+                            st.plotly_chart(fig)
                         display_extracted_info(result)
                 except Exception as viz_error:
                     st.error(f"Error displaying visualizations: {str(viz_error)}")
-                    # logger.error(f"Visualization error: {viz_error}\nResult: {result}")
-        
+    
     # Chat input
     if prompt := st.chat_input("Type your medical command here..."):
         # Add user message to chat history

@@ -1,11 +1,11 @@
 from asyncio.log import logger
-from fastapi import FastAPI, HTTPException, Depends # type: ignore
-from fastapi.middleware.cors import CORSMiddleware # type: ignore
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from .services.nlp_pipeline import MedicalNLPPipeline
-from .services.llm_pipeline import LLMMedicalPipeline  # Add this
+from .services.llm_pipeline import LLMMedicalPipeline
 from .config import Settings, get_settings
 from typing import Dict, Any, List, Optional
-from pydantic import BaseModel # type: ignore
+from pydantic import BaseModel
 import logging
 
 app = FastAPI(
@@ -30,7 +30,7 @@ llm_pipeline = LLMMedicalPipeline()
 class CommandRequest(BaseModel):
     text: str
     conversation_history: Optional[List[str]] = []
-    pipeline_type: str = "transformer"  # Add this field
+    pipeline_type: str = "transformer"
 
 class CommandResponse(BaseModel):
     success: bool
@@ -53,6 +53,11 @@ async def process_command(request: CommandRequest) -> Dict[str, Any]:
         # Debug print
         print("Processing result:", result)
         
+        # Extract temporal information from entities if it exists there
+        temporal_info = []
+        if "entities" in result and "temporal_info" in result["entities"]:
+            temporal_info = result["entities"]["temporal_info"]
+        
         response = {
             "success": True,
             "result": {
@@ -61,13 +66,26 @@ async def process_command(request: CommandRequest) -> Dict[str, Any]:
                     "confidence": result["intent"]["confidence"]
                 },
                 "entities": {
-                    k: [{"text": e["text"], "type": e["type"], "confidence": e["confidence"]} 
+                    k: [{"text": e["text"], "type": e["type"], "confidence": e.get("confidence", 1.0)} 
                        for e in v] 
-                    for k, v in result["entities"].items() if v
+                    for k, v in result["entities"].items() if v and k != "temporal_info"
                 },
-                "temporal_info": result["temporal_info"],
+                "temporal_info": temporal_info,
+                "simplified_format": result.get("simplified_format", {
+                    "intent": result["intent"]["primary_intent"],
+                    "entities": {
+                        "patient": next((e["text"] for e in result["entities"].get("patient_info", []) 
+                                      if e["type"] == "patient"), None),
+                        "gender": next((e["text"] for e in result["entities"].get("patient_info", []) 
+                                     if e["type"] == "gender"), None),
+                        "age": next((e["text"] for e in result["entities"].get("temporal_info", []) 
+                                  if e["type"] == "age"), None),
+                        "condition": next((e["text"] for e in result["entities"].get("medical_info", []) 
+                                       if e["type"] == "condition"), None)
+                    }
+                }),
                 "processed_at": result["processed_at"],
-                "pipeline_type": request.pipeline_type  # Add this
+                "pipeline_type": request.pipeline_type
             }
         }
         
@@ -82,7 +100,26 @@ async def process_command(request: CommandRequest) -> Dict[str, Any]:
         return response
     except Exception as e:
         logger.error(f"Error processing command: {str(e)}")
-        return {"success": False, "error": str(e)}
+        return {
+            "success": False,
+            "error": str(e),
+            "result": {
+                "intent": {"primary_intent": "unknown", "confidence": 0.0},
+                "entities": {},
+                "temporal_info": [],
+                "simplified_format": {
+                    "intent": "unknown",
+                    "entities": {
+                        "patient": None,
+                        "gender": None,
+                        "age": None,
+                        "condition": None
+                    }
+                },
+                "processed_at": result.get("processed_at", ""),
+                "pipeline_type": request.pipeline_type
+            }
+        }
 
 @app.get("/api/entities")
 async def get_supported_entities():
