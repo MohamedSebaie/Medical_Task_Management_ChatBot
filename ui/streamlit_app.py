@@ -378,6 +378,9 @@ def display_extracted_info(result: Dict[str, Any]):
     
     # Build entities dictionary with non-null values only
     entities = {}
+    print('===================================')
+    print()
+    print('======================================')
     
     # Extract all possible entities
     potential_entities = {
@@ -387,9 +390,9 @@ def display_extracted_info(result: Dict[str, Any]):
         "condition": get_entity_text(medical_info, "condition", ["diagnosis"]),
         "medication": get_entity_text(medical_info, "medication"),
         "dosage": get_entity_text(medical_info, "dosage"),
-        "frequency": get_entity_text(medical_info, "frequency")
+        "frequency": get_entity_text(medical_info, "frequency"),
+        "appointment_date": result.get('simplified_format').get('entities').get('appointment_date')
     }
-    
     # Only include non-null values
     for key, value in potential_entities.items():
         if value is not None:

@@ -40,8 +40,8 @@ class MedicalNLPPipeline:
             "patient", "doctor", "medication", "dosage",
             "frequency", "condition", "symptom", "procedure",
             "test", "date", "time", "duration", "facility",
-            "department", "vital_sign", "lab_result", "gender",  # Added gender
-            "demographics", "patient_gender"  # Additional gender-related entities
+            "department", "vital_sign", "lab_result", "gender", 
+            "demographics", "patient_gender", "appointment_date"
         ]
         
         self.gender_patterns = {
@@ -124,9 +124,10 @@ class MedicalNLPPipeline:
             "patient": "patient_info",
             "doctor": "patient_info",
             "age": "patient_info",
-            "gender": "patient_info",  # Added gender mapping
-            "patient_gender": "patient_info",  # Additional gender mapping
-            "demographics": "patient_info",  # Additional demographics mapping
+            "gender": "patient_info",  
+            "appointment_date": "temporal_info",
+            "patient_gender": "patient_info",  
+            "demographics": "patient_info", 
             "medication": "medical_info",
             "dosage": "medical_info",
             "frequency": "medical_info",
@@ -160,9 +161,17 @@ class MedicalNLPPipeline:
             "dates": [],
             "times": [],
             "patterns": [],
-            "age": []
+            "age": [],
+            "appointment_dates": [] 
         }
-
+        
+        # Match patterns like "December 20th", "Dec 20", "12/20", etc.
+        appointment_patterns = [
+            r'\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|'
+            r'Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|'
+            r'Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?\b',
+            r'\b\d{1,2}[-/]\d{1,2}(?:[-/]\d{2,4})?\b'
+        ]
         # Extract pure dates (excluding age)
         date_pattern = r'\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b'
         matches = re.finditer(date_pattern, doc.text, re.IGNORECASE)
@@ -183,6 +192,15 @@ class MedicalNLPPipeline:
         for pattern in self.temporal_patterns:
             if pattern in text_lower:
                 temporal_info["patterns"].append(pattern)
+        
+        for pattern in appointment_patterns:
+            matches = re.finditer(pattern, text_lower, re.IGNORECASE)
+            for match in matches:
+                date_str = match.group()
+                # Only add to appointment_dates if it appears after keywords like "on", "for", "at"
+                preceding_text = text_lower[:match.start()].lower()
+                if any(keyword in preceding_text for keyword in ["on", "for", "at", "schedule"]):
+                    temporal_info["appointment_dates"].append(date_str)
 
         return temporal_info
 
@@ -265,6 +283,26 @@ class MedicalNLPPipeline:
                     "confidence": 0.99
                 })
             
+            # Add appointment date to temporal_info if found
+            if temporal_info.get("appointment_dates"):
+                structured_entities["temporal_info"].append({
+                    "text": temporal_info["appointment_dates"][0],
+                    "type": "appointment_date",
+                    "confidence": 0.95
+                })
+
+            # Create entities dictionary for simplified format
+            simplified_entities = {
+                "patient": next((e["text"] for e in structured_entities["patient_info"] if e["type"] == "patient"), None),
+                "gender": next((e["text"] for e in structured_entities["patient_info"] if e["type"] == "gender"), None),
+                "age": next((e["text"] for e in structured_entities["temporal_info"] if e["type"] == "age"), None),
+                "condition": next((e["text"] for e in structured_entities["medical_info"] if e["type"] == "condition"), None),
+                "appointment_date": next((e["text"] for e in structured_entities["temporal_info"] if e["type"] == "appointment_date"), None)
+            }
+
+            # Remove None values from simplified entities
+            simplified_entities = {k: v for k, v in simplified_entities.items() if v is not None}
+            
             result = {
                 "intent": intent_result,
                 "entities": structured_entities,
@@ -272,12 +310,7 @@ class MedicalNLPPipeline:
                 "processed_at": datetime.now().isoformat(),
                 "simplified_format": {
                     "intent": intent_result["primary_intent"],
-                    "entities": {
-                        "patient": next((e["text"] for e in structured_entities["patient_info"] if e["type"] == "patient"), None),
-                        "gender": next((e["text"] for e in structured_entities["patient_info"] if e["type"] == "gender"), None),
-                        "age": next((e["text"] for e in structured_entities["temporal_info"] if e["type"] == "age"), None),
-                        "condition": next((e["text"] for e in structured_entities["medical_info"] if e["type"] == "condition"), None)
-                    }
+                    "entities": simplified_entities
                 }
             }
             
@@ -294,12 +327,7 @@ class MedicalNLPPipeline:
                 },
                 "simplified_format": {
                     "intent": "unknown",
-                    "entities": {
-                        "patient": None,
-                        "gender": None,
-                        "age": None,
-                        "condition": None
-                    }
+                    "entities": {}  # Changed to empty dict since we're filtering None values
                 },
                 "raw_text": text,
                 "processed_at": datetime.now().isoformat()
