@@ -6,6 +6,7 @@ import plotly.express as px # type: ignore
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 import pandas as pd
+import uuid
 
 # Configure page
 st.set_page_config(
@@ -217,35 +218,112 @@ def process_command(text: str) -> Dict[str, Any]:
 
 def update_session_data(result: Dict[str, Any]):
     """Update session state with processed data"""
-    # Update patients dataframe if relevant entities are found
-    entities = result['entities']
-    if 'patient_info' in entities and entities['patient_info']:
+    intent = result.get('intent', {}).get('primary_intent')
+    
+    # Update patients dataframe if intent is to add patient
+    if intent == "add_patient":
+        entities = result.get('entities', {})
+        patient_info = entities.get('patient_info', [])
+        medical_info = entities.get('medical_info', [])
+        temporal_info = entities.get('temporal_info', [])
+        
+        # Extract patient data with improved age handling
         patient_data = {
-            'name': next((e['text'] for e in entities['patient_info'] if e['type'] == 'patient'), None),
-            'age': next((e['text'] for e in entities['patient_info'] if e['type'] == 'age'), None),
-            'gender': next((e['text'] for e in entities['patient_info'] if e['type'] == 'gender'), None),  # Updated gender extraction
-            'condition': next((e['text'] for e in entities.get('medical_info', []) if e['type'] == 'condition'), None)
+            'name': next((e['text'] for e in patient_info if e['type'] == 'patient'), None),
+            'age': next((e['text'] for e in temporal_info if e['type'] == 'age'), None),
+            'gender': next((e['text'] for e in patient_info if e['type'] == 'gender'), None),
+            'condition': next((e['text'] for e in medical_info if e['type'] == 'condition'), None)
         }
         
-        # If gender not found in patient_info, try other entity categories
-        if not patient_data['gender']:
-            for category in entities.values():
-                gender_entity = next((e['text'] for e in category if e['type'] == 'gender'), None)
-                if gender_entity:
-                    patient_data['gender'] = gender_entity
-                    break
-        
-        if patient_data['name']:
-            # Create DataFrame if it doesn't exist
-            if 'patients' not in st.session_state:
-                st.session_state.patients = pd.DataFrame(columns=['name', 'age', 'gender', 'condition'])
-            
-            st.session_state.patients = pd.concat([
-                st.session_state.patients,
-                pd.DataFrame([patient_data])
-            ], ignore_index=True)
+        # If age not found in temporal_info, try demographics in patient_info
+        if not patient_data['age']:
+            demographics = next((e['text'] for e in patient_info if e['type'] == 'demographics'), None)
+            if demographics and 'years old' in demographics:
+                patient_data['age'] = demographics
 
-def display_intent_confidence(intent: Dict[str, Any]):
+        print("Extracted patient data:", patient_data)  # Debug print
+        
+        # Only add patient if we have at least a name
+        if patient_data['name']:
+            try:
+                # Create new DataFrame with the same columns as st.session_state.patients
+                new_patient_df = pd.DataFrame([patient_data], columns=['name', 'age', 'gender', 'condition'])
+                
+                # Check if patients DataFrame exists and initialize if it doesn't
+                if 'patients' not in st.session_state:
+                    st.session_state.patients = pd.DataFrame(columns=['name', 'age', 'gender', 'condition'])
+                
+                # Concatenate with existing patients
+                st.session_state.patients = pd.concat(
+                    [st.session_state.patients, new_patient_df], 
+                    ignore_index=True,
+                    axis=0
+                )
+                
+                # Remove any duplicate entries based on all columns
+                st.session_state.patients = st.session_state.patients.drop_duplicates()
+                
+                print("Updated patients DataFrame:")  # Debug print
+                print(st.session_state.patients)
+                
+            except Exception as e:
+                print(f"Error adding patient to DataFrame: {str(e)}")
+                raise
+    
+    # Update medications dataframe if intent is to assign medication
+    elif intent == "assign_medication":
+        entities = result.get('entities', {})
+        patient_info = entities.get('patient_info', [])
+        medical_info = entities.get('medical_info', [])
+        
+        medication_data = {
+            'patient': next((e['text'] for e in patient_info if e['type'] == 'patient'), None),
+            'medication': next((e['text'] for e in medical_info if e['type'] == 'medication'), None),
+            'dosage': next((e['text'] for e in medical_info if e['type'] == 'dosage'), None),
+            'frequency': next((e['text'] for e in medical_info if e['type'] == 'frequency'), None)
+        }
+        
+        if medication_data['patient'] and medication_data['medication']:
+            try:
+                new_medication_df = pd.DataFrame([medication_data])
+                if 'medications' not in st.session_state:
+                    st.session_state.medications = pd.DataFrame(columns=['patient', 'medication', 'dosage', 'frequency'])
+                st.session_state.medications = pd.concat([st.session_state.medications, new_medication_df], ignore_index=True)
+            except Exception as e:
+                print(f"Error adding medication to DataFrame: {str(e)}")
+    
+    # Update appointments dataframe if intent is to schedule appointment
+    elif intent == "schedule_appointment":
+        entities = result.get('entities', {})
+        patient_info = entities.get('patient_info', [])
+        temporal_info = entities.get('temporal_info', [])
+        location_info = entities.get('location_info', [])
+        
+        appointment_data = {
+            'patient': next((e['text'] for e in patient_info if e['type'] == 'patient'), None),
+            'date': next((e['text'] for e in temporal_info if e['type'] == 'date'), None),
+            'time': next((e['text'] for e in temporal_info if e['type'] == 'time'), None),
+            'department': next((e['text'] for e in location_info if e['type'] == 'department'), None)
+        }
+        
+        if appointment_data['patient'] and appointment_data['date']:
+            try:
+                new_appointment_df = pd.DataFrame([appointment_data])
+                if 'appointments' not in st.session_state:
+                    st.session_state.appointments = pd.DataFrame(columns=['patient', 'date', 'time', 'department'])
+                st.session_state.appointments = pd.concat([st.session_state.appointments, new_appointment_df], ignore_index=True)
+            except Exception as e:
+                print(f"Error adding appointment to DataFrame: {str(e)}")
+
+    # Print debug information
+    print("Current session state:")
+    print(f"Patients: {len(st.session_state.patients)} records")
+    print(st.session_state.patients)
+    print(f"Medications: {len(st.session_state.medications)} records")
+    print(f"Appointments: {len(st.session_state.appointments)} records")
+
+
+def display_intent_confidence(intent: Dict[str, Any], chart_id: str):
     """Display intent classification results with improved gauge"""
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
@@ -272,7 +350,7 @@ def display_intent_confidence(intent: Dict[str, Any]):
         font={'color': "#2C3E50", 'family': "Arial"}
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key=f"intent_gauge_{chart_id}")
 
 def visualize_entities(entities: Dict[str, List]) -> go.Figure:
     """Create enhanced visualization for extracted entities"""
@@ -896,6 +974,11 @@ def show_chat_interface():
     
     # Display chat history
     for message in st.session_state.chat_history:
+        # Generate or get message ID
+        message_id = message.get('id', str(uuid.uuid4()))
+        if 'id' not in message:
+            message['id'] = message_id
+            
         if message['is_user']:
             st.markdown(
                 f"""
@@ -937,22 +1020,25 @@ def show_chat_interface():
                     unsafe_allow_html=True
                 )
             
-            
             # Display visualization for assistant responses if result exists
             if message.get('result'):
                 result = message['result']
                 col1, col2 = st.columns(2)
                 with col1:
-                    display_intent_confidence(result["intent"])
+                    display_intent_confidence(result["intent"], message_id)
                 with col2:
                     fig = visualize_entities(result["entities"])
-                    st.plotly_chart(fig)
+                    st.plotly_chart(fig, key=f"entity_chart_{message_id}")
                 display_extracted_info(result)
     
     # Chat input
     if prompt := st.chat_input("Type your medical command here..."):
+        # Generate unique ID for new message
+        new_message_id = str(uuid.uuid4())
+        
         # Add user message to chat history
         st.session_state.chat_history.append({
+            'id': new_message_id,
             'message': prompt,
             'is_user': True,
             'timestamp': datetime.now().strftime("%H:%M:%S")
@@ -972,9 +1058,11 @@ def show_chat_interface():
                 
                 if "medication_validation" in result:
                     validation = result["medication_validation"]
+                    validation_msg_id = str(uuid.uuid4())
                     
                     # Add validation message
                     st.session_state.chat_history.append({
+                        'id': validation_msg_id,
                         'message': validation["message"],
                         'is_user': False,
                         'timestamp': datetime.now().strftime("%H:%M:%S"),
@@ -983,7 +1071,9 @@ def show_chat_interface():
                     
                     # If medication is invalid or needs more information
                     if not validation["is_valid"]:
+                        follow_up_id = str(uuid.uuid4())
                         st.session_state.chat_history.append({
+                            'id': follow_up_id,
                             'message': validation["follow_up_question"],
                             'is_user': False,
                             'timestamp': datetime.now().strftime("%H:%M:%S"),
@@ -994,7 +1084,9 @@ def show_chat_interface():
                     
                     # If medication is valid but needs dosage/frequency
                     if validation["validation_step"] in ["dosage", "frequency"]:
+                        follow_up_id = str(uuid.uuid4())
                         st.session_state.chat_history.append({
+                            'id': follow_up_id,
                             'message': validation["follow_up_question"],
                             'is_user': False,
                             'timestamp': datetime.now().strftime("%H:%M:%S"),
@@ -1006,7 +1098,9 @@ def show_chat_interface():
             # Add regular follow-up questions if no medication validation or after validation complete
             if "follow_up_question" in result:
                 follow_up = result["follow_up_question"]
+                follow_up_id = str(uuid.uuid4())
                 st.session_state.chat_history.append({
+                    'id': follow_up_id,
                     'message': follow_up,
                     'is_user': False,
                     'timestamp': datetime.now().strftime("%H:%M:%S"),
@@ -1016,7 +1110,9 @@ def show_chat_interface():
                 return
             
             # Add analysis completion message and results
+            response_id = str(uuid.uuid4())
             st.session_state.chat_history.append({
+                'id': response_id,
                 'message': "Analysis completed. See results below.",
                 'is_user': False,
                 'timestamp': datetime.now().strftime("%H:%M:%S"),
@@ -1024,7 +1120,9 @@ def show_chat_interface():
             })
             
         else:
+            error_id = str(uuid.uuid4())
             st.session_state.chat_history.append({
+                'id': error_id,
                 'message': f"Error: {response.get('error', 'Unknown error')}",
                 'is_user': False,
                 'timestamp': datetime.now().strftime("%H:%M:%S")

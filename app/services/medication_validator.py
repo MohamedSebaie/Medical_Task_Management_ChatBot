@@ -4,7 +4,7 @@ import json
 class MedicationValidator:
     def __init__(self):
         # Load medication database from JSON file
-        with open('/Users/MSebaie/Desktop/M_Sebaie_Files/Medical_Task_Management_ChatBot/app/services/medication_database.json', 'r') as f:
+        with open('E:/Work/Medical_Task_Management_ChatBot/app/services/medication_database.json', 'r') as f:
             self.medications_db = json.load(f)
 
     def validate_medication(self, medication: str, dosage: Optional[str] = None, 

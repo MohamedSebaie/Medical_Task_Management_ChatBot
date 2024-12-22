@@ -205,6 +205,44 @@ DEFAULT_CONFIG = {
     "max_length": 512
 }
 ```
+# Test Cases 🧪
+
+## Example Scenarios for System Testing
+
+### 1. Patient Addition & Basic Medication
+```
+Add a new patient Sarah Miller, female, 32 years old, with hypertension
+Assign medication Lisinopril 10mg daily for Sarah Miller
+Schedule appointment for Sarah Miller next Monday at 2 PM
+```
+
+### 2. Incorrect Medication Dosage
+```
+Add a new patient Michael Chen, male, 55 years old, with arthritis
+Assign medication Methotrexate 1000mg weekly for Michael Chen
+Schedule follow-up for Michael Chen in 2 weeks
+```
+
+### 3. Non-existent Medication
+```
+Add a new patient Emily Wilson, female, 28 years old, with migraine
+Assign medication SuperPainAway 250mg for Emily Wilson
+Book appointment for Emily Wilson tomorrow morning
+```
+
+### 4. Missing Frequency
+```
+Add a new patient Robert Brown, male, 61 years old, with high cholesterol
+Assign medication Atorvastatin 40mg for Robert Brown
+Schedule check-up for Robert Brown next Friday
+```
+
+### 5. Contraindicated Medication
+```
+Add a new patient Lisa Anderson, female, 35 years old, with pregnancy
+Assign medication Accutane 20mg daily for Lisa Anderson
+Schedule prenatal check for Lisa Anderson next week
+```
 
 ## 🐛 Troubleshooting
 
@@ -280,7 +318,7 @@ Distributed under the MIT License. See `LICENSE` for more information.
 
 ## 📫 Contact
 
-Your Name - [LinkedIn Profile](https://www.linkedin.com/in/mohamedsebaie/) - mohamedsebaie@gmail.com
+Mohamed Sebaie - [LinkedIn Profile](https://www.linkedin.com/in/mohamedsebaie/) - mohamedsebaie@gmail.com
 
 Project Link: [https://https://github.com/MohamedSebaie/Medical_Task_Management_ChatBot](https://https://github.com/MohamedSebaie/Medical_Task_Management_ChatBot)
 
