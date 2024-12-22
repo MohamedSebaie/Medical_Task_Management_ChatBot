@@ -313,29 +313,8 @@ class MedicalNLPPipeline:
                     "entities": simplified_entities
                 }
             }
-            # Add medication validation and follow-up questions
-            if intent_result["primary_intent"] == "assign_medication":
-                med_entities = structured_entities.get("medical_info", [])
-                medication = next((e["text"] for e in med_entities if e["type"] == "medication"), None)
-                dosage = next((e["text"] for e in med_entities if e["type"] == "dosage"), None)
-                frequency = next((e["text"] for e in med_entities if e["type"] == "frequency"), None)
-                
-                # Validate medication if present
-                if medication:
-                    validator = MedicationValidator()
-                    validation_result = validator.validate_medication(medication, dosage, frequency)
-                    result["medication_validation"] = validation_result
-                    
-                    # Add follow-up question based on validation result
-                    if not validation_result["is_valid"]:
-                        result["follow_up_question"] = validation_result["follow_up_question"]
-                    elif validation_result["validation_step"] == "dosage":
-                        result["follow_up_question"] = validation_result["follow_up_question"]
-                    elif validation_result["validation_step"] == "frequency":
-                        result["follow_up_question"] = validation_result["follow_up_question"]
             
             return result
-            
         except Exception as e:
             logger.error(f"Error processing text: {str(e)}")
             return {

@@ -1,10 +1,11 @@
+from fastapi import logger
 import streamlit as st # type: ignore
 import requests
 import json
 import plotly.graph_objects as go # type: ignore
 import plotly.express as px # type: ignore
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import pandas as pd
 
 # Configure page
@@ -154,6 +155,14 @@ st.markdown("""
     .assistant-timestamp {
         text-align: left;
     }
+    .error-message {
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 0.8rem 1rem;
+            border-radius: 15px;
+            border: 1px solid #ef9a9a;
+            margin: 10px 0;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -174,6 +183,8 @@ if "medications" not in st.session_state:
     st.session_state.medications = pd.DataFrame(columns=['patient', 'medication', 'dosage', 'frequency'])
 if "appointments" not in st.session_state:
     st.session_state.appointments = pd.DataFrame(columns=['patient', 'date', 'time', 'department'])
+if "pipeline_type" not in st.session_state:
+    st.session_state.pipeline_type = "transformer"
 
 def process_command(text: str) -> Dict[str, Any]:
     """Send command to API and get response"""
@@ -184,35 +195,39 @@ def process_command(text: str) -> Dict[str, Any]:
             api_url,
             json={
                 "text": text,
-                "conversation_history": st.session_state.conversation_history
-            }
+                "conversation_history": st.session_state.conversation_history,
+                "pipeline_type": st.session_state.pipeline_type
+            },
+            timeout=30  # Add timeout
         )
         response.raise_for_status()
         result = response.json()
         
-        # Debug print
-        print("API Response:", result)
+        if not result.get("success"):
+            error_msg = result.get("error", "Unknown error occurred")
+            st.error(f"Processing Error: {error_msg}")
+            return result
+            
+        # Validate response structure
+        if "result" not in result or "intent" not in result["result"]:
+            st.error("Invalid response format from server")
+            return {
+                "success": False,
+                "error": "Invalid response format"
+            }
         
-        # Update session state with processed data
+        # Update session state
         if result["success"]:
             st.session_state.processed_texts.append(result["result"])
             update_session_data(result["result"])
-            
-            # Explicitly check for medication-related intent and add follow-up
-            if result["result"]["intent"]["primary_intent"] == "assign_medication":
-                med_entities = result["result"]["entities"].get("medical_info", [])
-                medication = next((e["text"] for e in med_entities if e["type"] == "medication"), None)
-                dosage = next((e["text"] for e in med_entities if e["type"] == "dosage"), None)
-                frequency = next((e["text"] for e in med_entities if e["type"] == "frequency"), None)
-                
-                if medication and not dosage:
-                    result["result"]["follow_up_question"] = f"What is the dosage for {medication}?"
-                elif medication and dosage and not frequency:
-                    result["result"]["follow_up_question"] = f"How often should {medication} be taken?"
-            
+        
         return result
+        
     except requests.exceptions.RequestException as e:
         st.error(f"API Error: {str(e)}")
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        st.error(f"Unexpected Error: {str(e)}")
         return {"success": False, "error": str(e)}
 
 def update_session_data(result: Dict[str, Any]):
@@ -316,36 +331,79 @@ def visualize_entities(entities: Dict[str, List]) -> go.Figure:
     return fig
 
 def display_extracted_info(result: Dict[str, Any]):
-    """Display extracted information in an organized and styled manner"""
-    st.markdown('<div class="extracted-info">', unsafe_allow_html=True)
+    # Helper function to safely get entities
+    def get_entities(category: str) -> List[Dict[str, Any]]:
+        return result.get("entities", {}).get(category, [])
     
-    # Patient Info
-    if result["entities"].get("patient_info"):
-        st.markdown('<div class="info-category">Patient Information:</div>', unsafe_allow_html=True)
-        for item in result["entities"]["patient_info"]:
-            st.markdown(f'<div class="info-item">• {item["text"]} ({item["type"]})</div>', unsafe_allow_html=True)
+    # Helper function to safely extract entity text
+    def get_entity_text(entities: List[Dict], entity_type: str, alternate_types: List[str] = None) -> Optional[str]:
+        for entity in entities:
+            if entity.get("type") == entity_type:
+                return entity.get("text")
+            if alternate_types and entity.get("type") in alternate_types:
+                return entity.get("text")
+        return None
+
+    # Helper function to get age from multiple possible locations
+    def get_age(result: Dict[str, Any]) -> Optional[str]:
+        # Try getting age from temporal_info first
+        temporal_info = get_entities("temporal_info")
+        age = get_entity_text(temporal_info, "age")
+        if age:
+            return age
+        
+        # If not found, try getting from demographics in patient_info
+        patient_info = get_entities("patient_info")
+        for entity in patient_info:
+            if entity.get("type") == "demographics" and "years old" in entity.get("text", ""):
+                return entity.get("text")
+        return None
+
+    # Display patient information
+    patient_info = get_entities("patient_info")
+    if patient_info:
+        st.markdown("### Patient Information:")
+        for entity in patient_info:
+            st.markdown(f"• {entity.get('text', 'Unknown')} ({entity.get('type', 'Unknown')})")
     
-    # Medical Info
-    if result["entities"].get("medical_info"):
-        st.markdown('<div class="info-category">Medical Information:</div>', unsafe_allow_html=True)
-        for item in result["entities"]["medical_info"]:
-            st.markdown(f'<div class="info-item">• {item["text"]} ({item["type"]})</div>', unsafe_allow_html=True)
+    # Display medical information
+    medical_info = get_entities("medical_info")
+    if medical_info:
+        st.markdown("### Medical Information:")
+        for entity in medical_info:
+            st.markdown(f"• {entity.get('text', 'Unknown')} ({entity.get('type', 'Unknown')})")
+
+    # Display simplified entity format
+    st.markdown("### Simplified Format:")
     
-    # Gender (from vital_sign category)
-    if result["entities"].get("vital_sign"):
-        st.markdown('<div class="info-category">Vital Information:</div>', unsafe_allow_html=True)
-        for item in result["entities"]["vital_sign"]:
-            if item["type"] == "gender":
-                st.markdown(f'<div class="info-item">• Gender: {item["text"]}</div>', unsafe_allow_html=True)
+    # Build entities dictionary with non-null values only
+    entities = {}
+    print('===================================')
+    print()
+    print('======================================')
     
-    # Temporal Info
-    if any(result["temporal_info"].values()):
-        st.markdown('<div class="info-category">Temporal Information:</div>', unsafe_allow_html=True)
-        for key, values in result["temporal_info"].items():
-            if values:
-                st.markdown(f'<div class="info-item">• {key.title()}: {", ".join(values)}</div>', unsafe_allow_html=True)
+    # Extract all possible entities
+    potential_entities = {
+        "patient": get_entity_text(patient_info, "patient", ["patient_name"]),
+        "gender": get_entity_text(patient_info, "gender"),
+        "age": get_age(result),  # Using the new get_age function
+        "condition": get_entity_text(medical_info, "condition", ["diagnosis"]),
+        "medication": get_entity_text(medical_info, "medication"),
+        "dosage": get_entity_text(medical_info, "dosage"),
+        "frequency": get_entity_text(medical_info, "frequency"),
+        "appointment_date": result.get('simplified_format').get('entities').get('appointment_date')
+    }
+    # Only include non-null values
+    for key, value in potential_entities.items():
+        if value is not None:
+            entities[key] = value
     
-    st.markdown('</div>', unsafe_allow_html=True)
+    simplified = {
+        "intent": result.get("intent", {}).get("primary_intent", "unknown"),
+        "entities": entities
+    }
+    
+    st.code(json.dumps(simplified, indent=2), language="json")
 
 def show_dashboard():
     """Display enhanced dashboard page"""
@@ -867,7 +925,20 @@ def show_chat_interface():
                 unsafe_allow_html=True
             )
         else:
-            if message.get('is_follow_up'):
+            if message.get('is_error'):
+                st.markdown(
+                    f"""
+                    <div class="chat-container">
+                        <div class="chat-icon">⚠️</div>
+                        <div class="message-container">
+                            <div class="error-message">{message['message']}</div>
+                            <div class="timestamp assistant-timestamp">{message['timestamp']}</div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+            elif message.get('is_follow_up'):
                 st.markdown(
                     f"""
                     <div class="chat-container">
@@ -894,21 +965,28 @@ def show_chat_interface():
                     unsafe_allow_html=True
                 )
             
-            # Display JSON response if available
-            if message.get('result'):
+            # Display JSON response if available and requested
+            if message.get('result') and st.session_state.show_raw_output:
                 st.code(format_response_json(message['result']), language='json')
             
             # Display visualization for assistant responses if result exists
-            if message.get('result'):
-                result = message['result']
-                col1, col2 = st.columns(2)
-                with col1:
-                    display_intent_confidence(result["intent"])
-                with col2:
-                    fig = visualize_entities(result["entities"])
-                    st.plotly_chart(fig)
-                display_extracted_info(result)
-    
+            if message.get('result') and not message.get('is_error'):
+                try:
+                    result = message['result']
+                    if isinstance(result, dict) and "intent" in result:
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if isinstance(result["intent"], dict):
+                                display_intent_confidence(result["intent"])
+                        with col2:
+                            if "entities" in result and isinstance(result["entities"], dict):
+                                fig = visualize_entities(result["entities"])
+                                st.plotly_chart(fig)
+                        display_extracted_info(result)
+                except Exception as viz_error:
+                    st.error(f"Error displaying visualizations: {str(viz_error)}")
+                    # logger.error(f"Visualization error: {viz_error}\nResult: {result}")
+        
     # Chat input
     if prompt := st.chat_input("Type your medical command here..."):
         # Add user message to chat history
@@ -920,76 +998,99 @@ def show_chat_interface():
         
         # Process the command
         with st.spinner("Processing..."):
-            response = process_command(prompt)
-        
-        if response["success"]:
-            result = response["result"]
-            
-            # Check for medication validation first
-            if result["intent"]["primary_intent"] == "assign_medication":
-                med_entities = result["entities"].get("medical_info", [])
-                medication = next((e["text"] for e in med_entities if e["type"] == "medication"), None)
+            try:
+                response = process_command(prompt)
                 
-                if "medication_validation" in result:
-                    validation = result["medication_validation"]
-                    
-                    # Add validation message
+                if not response["success"]:
                     st.session_state.chat_history.append({
-                        'message': validation["message"],
+                        'message': f"Error: {response.get('error', 'Unknown error')}",
                         'is_user': False,
                         'timestamp': datetime.now().strftime("%H:%M:%S"),
-                        'is_follow_up': False
+                        'is_error': True
                     })
-                    
-                    # If medication is invalid or needs more information
-                    if not validation["is_valid"]:
-                        st.session_state.chat_history.append({
-                            'message': validation["follow_up_question"],
-                            'is_user': False,
-                            'timestamp': datetime.now().strftime("%H:%M:%S"),
-                            'is_follow_up': True
-                        })
-                        st.rerun()
-                        return
-                    
-                    # If medication is valid but needs dosage/frequency
-                    if validation["validation_step"] in ["dosage", "frequency"]:
-                        st.session_state.chat_history.append({
-                            'message': validation["follow_up_question"],
-                            'is_user': False,
-                            'timestamp': datetime.now().strftime("%H:%M:%S"),
-                            'is_follow_up': True
-                        })
-                        st.rerun()
-                        return
+                    st.rerun()
+                    return
 
-            # Add regular follow-up questions if no medication validation or after validation complete
-            if "follow_up_question" in result:
-                follow_up = result["follow_up_question"]
+                result = response["result"]
+                
+                # Handle LLM-specific processing if needed
+                if st.session_state.pipeline_type == "llm":
+                    if "llm_response" in result:
+                        st.session_state.chat_history.append({
+                            'message': result["llm_response"],
+                            'is_user': False,
+                            'timestamp': datetime.now().strftime("%H:%M:%S"),
+                            'result': result
+                        })
+                        st.rerun()
+                        return
+                
+                # Check for medication validation first
+                if result["intent"]["primary_intent"] == "assign_medication":
+                    med_entities = result["entities"].get("medical_info", [])
+                    medication = next((e["text"] for e in med_entities if e["type"] == "medication"), None)
+                    
+                    if "medication_validation" in result:
+                        validation = result["medication_validation"]
+                        
+                        # Add validation message
+                        st.session_state.chat_history.append({
+                            'message': validation["message"],
+                            'is_user': False,
+                            'timestamp': datetime.now().strftime("%H:%M:%S"),
+                            'is_follow_up': False
+                        })
+                        
+                        # If medication is invalid or needs more information
+                        if not validation["is_valid"]:
+                            st.session_state.chat_history.append({
+                                'message': validation["follow_up_question"],
+                                'is_user': False,
+                                'timestamp': datetime.now().strftime("%H:%M:%S"),
+                                'is_follow_up': True
+                            })
+                            st.rerun()
+                            return
+                        
+                        # If medication is valid but needs dosage/frequency
+                        if validation["validation_step"] in ["dosage", "frequency"]:
+                            st.session_state.chat_history.append({
+                                'message': validation["follow_up_question"],
+                                'is_user': False,
+                                'timestamp': datetime.now().strftime("%H:%M:%S"),
+                                'is_follow_up': True
+                            })
+                            st.rerun()
+                            return
+
+                # Add regular follow-up questions if no medication validation or after validation complete
+                if "follow_up_question" in result:
+                    follow_up = result["follow_up_question"]
+                    st.session_state.chat_history.append({
+                        'message': follow_up,
+                        'is_user': False,
+                        'timestamp': datetime.now().strftime("%H:%M:%S"),
+                        'is_follow_up': True
+                    })
+                    st.rerun()
+                    return
+                
+                # Add analysis completion message and results
                 st.session_state.chat_history.append({
-                    'message': follow_up,
+                    'message': "Analysis completed. See results below.",
                     'is_user': False,
                     'timestamp': datetime.now().strftime("%H:%M:%S"),
-                    'is_follow_up': True
+                    'result': result
                 })
-                st.rerun()
-                return
+                
+            except Exception as e:
+                st.session_state.chat_history.append({
+                    'message': f"Error processing command: {str(e)}",
+                    'is_user': False,
+                    'timestamp': datetime.now().strftime("%H:%M:%S"),
+                    'is_error': True
+                })
             
-            # Add analysis completion message and results
-            st.session_state.chat_history.append({
-                'message': "Analysis completed. See results below.",
-                'is_user': False,
-                'timestamp': datetime.now().strftime("%H:%M:%S"),
-                'result': result
-            })
-            
-        else:
-            st.session_state.chat_history.append({
-                'message': f"Error: {response.get('error', 'Unknown error')}",
-                'is_user': False,
-                'timestamp': datetime.now().strftime("%H:%M:%S")
-            })
-        
         st.rerun()
 
 def handle_response(response: Dict[str, Any]):
@@ -1045,6 +1146,14 @@ def main():
     # Sidebar navigation
     st.sidebar.title("Navigation")
     page = st.sidebar.radio("Go to", ["Chat Interface", "Dashboard", "Data Views"])
+    
+    # Add pipeline selection
+    st.sidebar.header("Processing Mode")
+    st.session_state.pipeline_type = st.sidebar.radio(
+        "Select Processing Mode",
+        ["transformer", "llm"],
+        format_func=lambda x: "Transformer-based" if x == "transformer" else "LLM-based"
+    )
     
     # Settings
     st.sidebar.header("Settings")
